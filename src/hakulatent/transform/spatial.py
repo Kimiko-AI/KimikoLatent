@@ -109,8 +109,9 @@ class CropTransform(LatentTransformBase):
             scale_factors = self.scale_factors[0]
             position = self.positions[0]
         size = (int(x.shape[2] * scale_factors), int(x.shape[3] * scale_factors))
+        latent_size = (int(latent.shape[2] * scale_factors), int(latent.shape[3] * scale_factors))
         x = crop(x, size, position)
-        latent = crop(latent, size, position)
+        latent = crop(latent, latent_size, position)
         return x, latent
 
 
