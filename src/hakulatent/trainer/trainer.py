@@ -110,6 +110,7 @@ class LatentTrainer(BaseTrainer):
         loss_weights: tuple[int] = (1.0, 0.5, 1e-6),
         latent_transform: LatentTransformBase | None = None,
         transform_prob: float = 0.5,
+        log_interval: int = 500,
         *args,
         name: str = "",
         lr: float = 1e-5,
@@ -161,6 +162,7 @@ class LatentTrainer(BaseTrainer):
         self.lycoris_model = lycoris_model
         self.transform = latent_transform
         self.transform_prob = transform_prob
+        self.log_interval = log_interval
 
         self.recon_loss = recon_loss
         self.adv_loss = adv_loss
@@ -365,7 +367,7 @@ class LatentTrainer(BaseTrainer):
             d_sch = []
         grad_acc = self.grad_acc
 
-        if self.global_step % 500 == 0:
+        if self.global_step % self.log_interval == 0:
             self.log_images(org_x, x, x_rec, latent)
 
         # VAE Loss
