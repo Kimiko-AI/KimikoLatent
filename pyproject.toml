@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hakulatent"
+version = "0.0.1"
+description = "A comprehensive codebase for training and finetuning Image <> Latent models."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Apache License 2.0"}
+authors = [
+    {name = "Shih-Ying Yeh(KohakuBlueLeaf)", email = "apolloyeh0123@gmail.com"},
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/KohakuBlueleaf/HakuLatent"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
