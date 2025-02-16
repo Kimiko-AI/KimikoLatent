@@ -14,3 +14,13 @@ A comprehensive codebase for training and finetuning Image <> Latent models.
 - [ ] Models
   - [ ] MAE for latent
   - [ ] windowed/natten attention for commonly used VAE setup
+
+### EQ-VAE
+
+Quick PoC run (significant quality degrad but also significant smoother latent):
+
+| Before EQ-VAE                                  | After EQ-VAE                                   |
+| ---------------------------------------------- | ---------------------------------------------- |
+| ![1739679876513](image/README/1739679876513.png) | ![1739679861314](image/README/1739679861314.png) |
+
+The 1~4 row are: original image, transformed image, decoded image from transformed latent, transformed latent
