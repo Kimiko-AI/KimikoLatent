@@ -109,6 +109,7 @@ class LatentTrainer(BaseTrainer):
         adv_loss: AdvLoss | None = None,
         loss_weights: tuple[int] = (1.0, 0.5, 1e-6),
         latent_transform: LatentTransformBase | None = None,
+        transform_prob: float = 0.5,
         *args,
         name: str = "",
         lr: float = 1e-5,
@@ -159,6 +160,7 @@ class LatentTrainer(BaseTrainer):
         self.vae = vae
         self.lycoris_model = lycoris_model
         self.transform = latent_transform
+        self.transform_prob = transform_prob
 
         self.recon_loss = recon_loss
         self.adv_loss = adv_loss
@@ -236,7 +238,7 @@ class LatentTrainer(BaseTrainer):
         dist.deterministic = False
 
         latent = dist.sample()
-        if self.transform is not None and random.random() < 0.75:
+        if self.transform is not None and random.random() < self.transform_prob:
             x, latent = self.transform(x, latent)
 
         x_rec = self.vae.decode(latent)
