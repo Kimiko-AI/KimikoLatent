@@ -182,7 +182,7 @@ class LatentTrainer(BaseTrainer):
         self.epoch = 0
         self.opt_step = 0
         self.ema_loss = 0
-        self.ema_decay = 0.99
+        self.ema_decay = 0.999
 
         if lycoris_model is not None:
             self.lycoris_model.train()
@@ -367,7 +367,7 @@ class LatentTrainer(BaseTrainer):
             d_sch = []
         grad_acc = self.grad_acc
 
-        if self.global_step % self.log_interval == 0:
+        if idx % self.log_interval == 0:
             self.log_images(org_x, x, x_rec, latent)
 
         # VAE Loss
