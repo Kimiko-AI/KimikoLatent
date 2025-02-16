@@ -306,9 +306,6 @@ class LatentTrainer(BaseTrainer):
             d_opt.zero_grad()
             if d_sch is not None:
                 d_sch.step()
-            # to keep the global step consistent
-            self.trainer.global_step -= 1
-            self.global_step -= 1
 
         ema_decay = min(self.opt_step / (10 + self.opt_step), self.ema_decay)
         self.ema_d_loss = ema_decay * self.ema_d_loss + (1 - ema_decay) * loss.item()
