@@ -12,7 +12,17 @@ license = {text = "Apache License 2.0"}
 authors = [
     {name = "Shih-Ying Yeh(KohakuBlueLeaf)", email = "apolloyeh0123@gmail.com"},
 ]
-dependencies = []
+dependencies = [
+    "torch",
+    "torchvision",
+    "lightning",
+    "diffusers",
+    "anyschedule",
+    "lycoris-lora",
+    "pillow",
+    "datasets",
+    "lpips"
+]
 
 [project.urls]
 Homepage = "https://github.com/KohakuBlueleaf/HakuLatent"
