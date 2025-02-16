@@ -98,7 +98,7 @@ class CropTransform(LatentTransformBase):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         if self.method == "random":
             scale_factors = self.scale_factors[
-                torch.randint(0, len(self.size), (1,)).item()
+                torch.randint(0, len(self.scale_factors), (1,)).item()
             ]
             position = self.positions[
                 torch.randint(0, len(self.positions), (1,)).item()
