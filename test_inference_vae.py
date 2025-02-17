@@ -11,7 +11,33 @@ from hakulatent.utils.latent import pca_to_rgb
 from hakulatent.logging import logger
 
 
-lpips_loss = lpips.LPIPS(net="vgg").eval().to("mps").requires_grad_(False)
+DEVICE = "cpu"
+DTYPE = torch.float32
+
+BASE_MODEL = "madebyollin/sdxl-vae-fp16-fix"
+# BASE_MODEL = "black-forest-labs/FLUX.1-schnell"
+# BASE_MODEL = "stabilityai/sd-vae-ft-mse"
+SUB_FOLDER = None
+# SUB_FOLDER = "vae"
+
+BASE_MODEL2 = BASE_MODEL
+SUB_FOLDER2 = SUB_FOLDER
+# BASE_MODEL2 = "stabilityai/stable-diffusion-3.5-large"
+# SUB_FOLDER2 = "vae"
+
+# CKPT_PATH = "epoch=1-step=44000.ckpt"
+CKPT_PATH = "./HakuLatent/9itw0j0g/checkpoints/epoch=0-step=2000.ckpt"
+
+
+def process(x):
+    return x * 2 - 1
+
+
+def deprocess(x):
+    return x * 0.5 + 0.5
+
+
+lpips_loss = lpips.LPIPS(net="vgg").eval().to(DEVICE).requires_grad_(False)
 
 
 def metrics(inp, recon):
@@ -20,27 +46,33 @@ def metrics(inp, recon):
     return (
         mse,
         psnr,
-        lpips_loss(inp.to("mps").float(), recon.to("mps").float()).mean().cpu(),
+        lpips_loss(inp.to(DEVICE).float(), recon.to(DEVICE).float()).mean().cpu(),
     )
 
 
 if __name__ == "__main__":
-    test_img = Image.open("test3.png")
+    test_img = Image.open("test2.png")
     test_img = VF.to_tensor(test_img)
-    test_inp = VF.resize(test_img, 1024).unsqueeze(0).to("mps").half() * 2 - 1
+    test_inp = process(VF.resize(test_img, 1024).unsqueeze(0).to(DEVICE).to(DTYPE))
     test_img = VF.resize(test_img, 2048).unsqueeze(0)
 
     logger.info("Loading models...")
     vae_ref: AutoencoderKL = AutoencoderKL.from_pretrained(
-        "madebyollin/sdxl-vae-fp16-fix"
+        BASE_MODEL, subfolder=SUB_FOLDER
     )
-    vae: AutoencoderKL = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix")
-    trainer_module = LatentTrainer.load_from_checkpoint(
-        "./epoch=0-step=23000.ckpt", vae=vae, map_location="cpu", strict=False
+    vae: AutoencoderKL = AutoencoderKL.from_pretrained(
+        BASE_MODEL2, subfolder=SUB_FOLDER2
     )
+    if BASE_MODEL2 == BASE_MODEL and SUB_FOLDER2 == SUB_FOLDER:
+        trainer_module = LatentTrainer.load_from_checkpoint(
+            CKPT_PATH,
+            vae=vae,
+            map_location="cpu",
+            strict=False,
+        )
 
-    vae = vae.half().eval().requires_grad_(False).to("mps")
-    vae_ref = vae_ref.half().eval().requires_grad_(False).to("mps")
+    vae = vae.to(DTYPE).eval().requires_grad_(False).to(DEVICE)
+    vae_ref = vae_ref.to(DTYPE).eval().requires_grad_(False).to(DEVICE)
 
     logger.info("Running Encoding...")
 
@@ -49,21 +81,21 @@ if __name__ == "__main__":
 
     logger.info("Running Decoding...")
 
-    original_recon = vae_ref.decode(original_latent).sample.cpu().float() * 0.5 + 0.5
-    new_recon = vae.decode(new_latent).sample.cpu().float() * 0.5 + 0.5
+    original_recon = deprocess(vae_ref.decode(original_latent).sample.cpu().float())
+    new_recon = deprocess(vae.decode(new_latent).sample.cpu().float())
 
     logger.info("Done, calculating results...")
     orig_latent_rgb = F.interpolate(
-        pca_to_rgb(original_latent.cpu().float()),
+        pca_to_rgb(original_latent.cpu().float()[:, :4]),
         original_recon.shape[-2:],
         mode="nearest",
     )
     new_latent_rgb = F.interpolate(
-        pca_to_rgb(new_latent.cpu().float()), new_recon.shape[-2:], mode="nearest"
+        pca_to_rgb(new_latent.cpu().float()[:, :4]),
+        new_recon.shape[-2:],
+        mode="nearest",
     )
-    test_inp = (
-        F.interpolate(test_inp, new_recon.shape[-2:], mode="bilinear") * 0.5 + 0.5
-    )
+    test_inp = deprocess(F.interpolate(test_inp, new_recon.shape[-2:], mode="bilinear"))
     test_img = F.interpolate(
         test_img, [i * 2 for i in new_recon.shape[-2:]], mode="bilinear"
     )
