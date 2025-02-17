@@ -56,6 +56,7 @@ class ConvNeXtPerceptualLoss(nn.Module):
         use_gram=False,
         input_range=(0, 1),
         layer_weight_decay=0.99,
+        device="cpu",
     ):
         super(ConvNeXtPerceptualLoss, self).__init__()
         self.model = ConvNextPerceptualLoss(
@@ -65,6 +66,7 @@ class ConvNeXtPerceptualLoss(nn.Module):
             use_gram=use_gram,
             input_range=input_range,
             layer_weight_decay=layer_weight_decay,
+            device=device,
         )
 
     def forward(self, x_real, x_recon):
