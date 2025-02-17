@@ -1,3 +1,4 @@
+import convnext_perceptual_loss
 import test
 import torch
 import torch.nn.functional as F
@@ -5,6 +6,7 @@ import torchvision.transforms.functional as VF
 import lpips
 from PIL import Image
 from diffusers import AutoencoderKL
+from convnext_perceptual_loss import ConvNextType, ConvNextPerceptualLoss
 
 from hakulatent.trainer import LatentTrainer
 from hakulatent.utils.latent import pca_to_rgb
@@ -26,7 +28,7 @@ SUB_FOLDER2 = SUB_FOLDER
 # SUB_FOLDER2 = "vae"
 
 # CKPT_PATH = "epoch=1-step=44000.ckpt"
-CKPT_PATH = "./HakuLatent/9itw0j0g/checkpoints/epoch=0-step=2000.ckpt"
+CKPT_PATH = "./HakuLatent/ubeak8fi/checkpoints/epoch=0-step=1000.ckpt"
 
 
 def process(x):
@@ -38,6 +40,17 @@ def deprocess(x):
 
 
 lpips_loss = lpips.LPIPS(net="vgg").eval().to(DEVICE).requires_grad_(False)
+convn_loss = (
+    ConvNextPerceptualLoss(
+        device=DEVICE,
+        model_type=ConvNextType.TINY,
+        feature_layers=[10, 12, 14],
+        input_range=(-1, 1),
+        use_gram=False,
+    )
+    .eval()
+    .requires_grad_(False)
+)
 
 
 def metrics(inp, recon):
@@ -47,6 +60,8 @@ def metrics(inp, recon):
         mse,
         psnr,
         lpips_loss(inp.to(DEVICE).float(), recon.to(DEVICE).float()).mean().cpu(),
+        convn_loss(inp.to(DEVICE).float(), recon.to(DEVICE).float()).mean().cpu() * 100, 
+        # Multiply by 100 to observe the same scale as LPIPS
     )
 
 
@@ -100,14 +115,16 @@ if __name__ == "__main__":
         test_img, [i * 2 for i in new_recon.shape[-2:]], mode="bilinear"
     )
 
-    ref_mse, ref_psnr, ref_lpips = metrics(test_inp, original_recon)
-    new_mse, new_psnr, new_lpips = metrics(test_inp, new_recon)
+    ref_mse, ref_psnr, ref_lpips, ref_convn = metrics(test_inp, original_recon)
+    new_mse, new_psnr, new_lpips, new_convn = metrics(test_inp, new_recon)
 
     logger.info(
-        f"  - Orig: MSE: {ref_mse:.4f}, PSNR: {ref_psnr:.2f}, LPIPS: {ref_lpips:.4f}"
+        f"  - Orig: MSE: {ref_mse:.4f}, PSNR: {ref_psnr:.2f}, "
+        f"LPIPS: {ref_lpips:.4f}, ConvNeXt: {ref_convn:.4f}"
     )
     logger.info(
-        f"  - New : MSE: {new_mse:.4f}, PSNR: {new_psnr:.2f}, LPIPS: {new_lpips:.4f}"
+        f"  - New : MSE: {new_mse:.4f}, PSNR: {new_psnr:.2f}, "
+        f"LPIPS: {new_lpips:.4f}, ConvNeXt: {new_convn:.4f}"
     )
 
     logger.info("Saving results...")
