@@ -18,6 +18,7 @@ if __name__ == "__main__":
         Lambda,
     )
     from diffusers import AutoencoderKL
+    from convnext_perceptual_loss import ConvNextType
 
     from hl_dataset.imagenet import ImageNetDataset
     from hakulatent.transform import (
@@ -35,16 +36,22 @@ else:
     print("Subprocess Starting:", __name__)
 
 
+BASE_MODEL = "madebyollin/sdxl-vae-fp16-fix"
+SUB_FOLDER = None
 EPOCHS = 1
 BATCH_SIZE = 8
-GRAD_ACC = 8
+GRAD_ACC = 4
+GRAD_CKPT = False
 
-ADV_START_ITER = 100
+LOSS_TYPE = "mse"
+LPIPS_NET = "vgg"
+USE_CONVNEXT = True
+ADV_START_ITER = 1000
 
 NUM_WORKERS = 8
 SIZE = 256
 LR = 2e-5
-DLR = 1e-4
+DLR = 5e-4
 
 
 def process(x):
@@ -77,34 +84,39 @@ if __name__ == "__main__":
         num_workers=NUM_WORKERS,
         persistent_workers=bool(NUM_WORKERS),
     )
-    vae: AutoencoderKL = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix")
+    vae: AutoencoderKL = AutoencoderKL.from_pretrained(BASE_MODEL, subfolder=SUB_FOLDER)
+    if GRAD_CKPT:
+        vae.enable_gradient_checkpointing()
     vae.get_last_layer = lambda: vae.decoder.conv_out.weight
 
     trainer_module = LatentTrainer(
         vae=vae,
-        recon_loss=torch.compile(ReconLoss(loss_type="l1", lpips_net="vgg")),
-        adv_loss=torch.compile(AdvLoss(start_iter=2 * GRAD_ACC * ADV_START_ITER)),
+        recon_loss=ReconLoss(
+            loss_type=LOSS_TYPE,
+            lpips_net=LPIPS_NET,
+            convnext_type=ConvNextType.TINY if USE_CONVNEXT else None,
+            convnext_kwargs={
+                "feature_layers": [10, 12, 14],
+                "use_gram": False,
+                "input_range": (-1, 1),
+                "device": "cuda",
+            },
+        ),
+        adv_loss=AdvLoss(start_iter=ADV_START_ITER),
         img_deprocess=deprocess,
+        transform_prob=0.65,
         latent_transform=LatentTransformCompose(
             RotationTransform(method="random"),
-            LatentTransformSwitch(
-                ScaleDownTransform(
-                    method="random", scale_factors=[i / 32 for i in range(16, 32, 2)]
-                ),
-                ScaleUpCropTransform(
-                    method="random", scale_factors=[i / 32 for i in range(32, 48, 2)]
-                ),
-                CropTransform(
-                    method="random", scale_factors=[i / 32 for i in range(16, 32, 2)]
-                ),
+            ScaleDownTransform(
+                method="random", scale_factors=[i / 32 for i in range(8, 32, 2)]
             ),
         ),
         loss_weights={
             "recon": 1.0,
-            "adv": 1.0,
-            "kl": 2e-7,
+            "adv": 0.5,
+            "kl": 1e-6,
         },
-        name="EQ-VAE-sdxl-imgnet",
+        name="EQ-VAE-sdxl-ft-mse-imgnet",
         lr=LR,
         lr_disc=DLR,
         optimizer="torch.optim.AdamW",
@@ -113,9 +125,9 @@ if __name__ == "__main__":
             "lr": {
                 "end": len(loader) * EPOCHS,
                 "value": 1.0,
-                "min_value": 0.25,
+                "min_value": 0.1,
                 "mode": "cosine",
-                "warmup": 100,
+                "warmup": 10,
             }
         },
         grad_acc=GRAD_ACC,
@@ -123,7 +135,8 @@ if __name__ == "__main__":
 
     logger = WandbLogger(
         project="HakuLatent",
-        name="EQ-VAE-sdxl-imgnet-AdvON",
+        name="EQ-VAE-sdxl-ft-mse-imgnet-AdvON",
+        # offline=True
     )
     trainer = pl.Trainer(
         logger=logger,
@@ -131,12 +144,9 @@ if __name__ == "__main__":
         max_epochs=EPOCHS,
         precision="16-mixed",
         callbacks=[
-            ModelCheckpoint(
-                every_n_train_steps=5000,
-            ),
+            ModelCheckpoint(every_n_train_steps=1000),
             LearningRateMonitor(logging_interval="step"),
         ],
+        log_every_n_steps=1,
     )
     trainer.fit(trainer_module, loader)
-else:
-    print("Subprocess Running:", __name__)
