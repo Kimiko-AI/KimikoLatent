@@ -1,6 +1,6 @@
 import os
 import random
-from typing import Any, Iterator
+from typing import Any, Iterator, Callable
 
 import torch
 import torch.nn as nn
@@ -107,6 +107,7 @@ class LatentTrainer(BaseTrainer):
         lycoris_model: nn.Module | None = None,
         recon_loss: nn.Module = nn.MSELoss(),
         adv_loss: AdvLoss | None = None,
+        img_deprocess: Callable | None = None,
         loss_weights: tuple[int] = (1.0, 0.5, 1e-6),
         latent_transform: LatentTransformBase | None = None,
         transform_prob: float = 0.5,
@@ -160,6 +161,8 @@ class LatentTrainer(BaseTrainer):
 
         self.vae = vae
         self.lycoris_model = lycoris_model
+
+        self.img_deprocess = img_deprocess or (lambda x: x)
         self.transform = latent_transform
         self.transform_prob = transform_prob
         self.log_interval = log_interval
@@ -365,7 +368,12 @@ class LatentTrainer(BaseTrainer):
         grad_acc = self.grad_acc
 
         if idx % self.log_interval == 0:
-            self.log_images(org_x, x, x_rec, latent)
+            self.log_images(
+                self.img_deprocess(org_x),
+                self.img_deprocess(x),
+                self.img_deprocess(x_rec),
+                latent,
+            )
 
         # VAE Loss
         self.recon_step(x, x_rec, dist, g_opt, g_sch, idx, grad_acc)

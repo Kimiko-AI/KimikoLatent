@@ -2,32 +2,37 @@
 A demo script to finetune a pretrained VAE on ImageNet with the EQ-VAE setup.
 """
 
-import torch
-import torch.utils.data as data
-import lightning.pytorch as pl
-from lightning.pytorch.loggers import WandbLogger
-from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
-from torchvision.transforms import (
-    Compose,
-    Resize,
-    RandomCrop,
-    RandomHorizontalFlip,
-    RandomVerticalFlip,
-    ToTensor,
-)
-from diffusers import AutoencoderKL
+if __name__ == "__main__":
+    import torch
+    import torch.utils.data as data
+    import lightning.pytorch as pl
+    from lightning.pytorch.loggers import WandbLogger
+    from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
+    from torchvision.transforms import (
+        Compose,
+        Resize,
+        RandomCrop,
+        RandomHorizontalFlip,
+        RandomVerticalFlip,
+        ToTensor,
+        Lambda,
+    )
+    from diffusers import AutoencoderKL
 
-from hl_dataset.imagenet import ImageNetDataset
-from hakulatent.transform import (
-    LatentTransformCompose,
-    LatentTransformSwitch,
-    RotationTransform,
-    ScaleDownTransform,
-    ScaleUpCropTransform,
-    CropTransform,
-)
-from hakulatent.trainer import LatentTrainer
-from hakulatent.losses import AdvLoss, ReconLoss
+    from hl_dataset.imagenet import ImageNetDataset
+    from hakulatent.transform import (
+        LatentTransformCompose,
+        LatentTransformSwitch,
+        RotationTransform,
+        ScaleDownTransform,
+        ScaleUpCropTransform,
+        CropTransform,
+    )
+    from hakulatent.trainer import LatentTrainer
+    from hakulatent.losses import AdvLoss, ReconLoss
+else:
+    # This if-else can speedup multi-worker dataloader in windows
+    print("Subprocess Starting:", __name__)
 
 
 EPOCHS = 1
@@ -42,6 +47,14 @@ LR = 2e-5
 DLR = 1e-4
 
 
+def process(x):
+    return x * 2 - 1
+
+
+def deprocess(x):
+    return x * 0.5 + 0.5
+
+
 if __name__ == "__main__":
     split = "train"
     transform = Compose(
@@ -51,6 +64,7 @@ if __name__ == "__main__":
             RandomHorizontalFlip(),
             RandomVerticalFlip(),
             ToTensor(),
+            Lambda(process),
         ]
     )
     dataset = ImageNetDataset(split, transform)
@@ -70,6 +84,7 @@ if __name__ == "__main__":
         vae=vae,
         recon_loss=torch.compile(ReconLoss(loss_type="l1", lpips_net="vgg")),
         adv_loss=torch.compile(AdvLoss(start_iter=2 * GRAD_ACC * ADV_START_ITER)),
+        img_deprocess=deprocess,
         latent_transform=LatentTransformCompose(
             RotationTransform(method="random"),
             LatentTransformSwitch(
