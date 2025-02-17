@@ -194,7 +194,7 @@ class LatentTrainer(BaseTrainer):
             self.multiple_optimizers = True
             self.train_params = [self.train_params, self.adv_loss.parameters()]
             self.ema_d_loss = 0
-            self.start_iter = self.adv_loss.start_iter
+            self.start_iter = self.adv_loss.start_iter - 1
 
     def on_train_epoch_start(self):
         if isinstance(self.grad_acc, dict):
