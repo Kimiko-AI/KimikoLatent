@@ -149,6 +149,7 @@ class LatentTrainer(BaseTrainer):
                 "lycoris_model",
                 "recon_loss",
                 "adv_loss",
+                "img_deprocess",
                 "latent_transform",
                 "args",
                 "kwargs",
@@ -253,7 +254,7 @@ class LatentTrainer(BaseTrainer):
 
     def recon_step(self, x, x_rec, dist, g_opt, g_sch, batch_idx, grad_acc):
         recon_loss = self.recon_loss(x, x_rec)
-        kl_loss = torch.mean(dist.kl())
+        kl_loss = torch.sum(dist.kl()) / x_rec.numel()
         loss = recon_loss * self.recon_loss_weight + kl_loss * self.kl_loss_weight
         adv_loss = torch.tensor(0.0, device=x.device)
         if (
