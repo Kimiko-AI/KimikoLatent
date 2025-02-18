@@ -1,5 +1,3 @@
-import convnext_perceptual_loss
-import test
 import torch
 import torch.nn.functional as F
 import torchvision.transforms.functional as VF
@@ -45,7 +43,7 @@ convn_loss = (
         device=DEVICE,
         model_type=ConvNextType.TINY,
         feature_layers=[10, 12, 14],
-        input_range=(-1, 1),
+        input_range=(0, 1),
         use_gram=False,
     )
     .eval()
@@ -54,19 +52,20 @@ convn_loss = (
 
 
 def metrics(inp, recon):
-    mse = F.mse_loss(inp.cpu().float(), recon.cpu().float())
+    inp = inp.to(DEVICE).float()
+    recon = recon.to(DEVICE).float()
+    mse = F.mse_loss(inp, recon)
     psnr = 10 * torch.log10(1 / mse)
     return (
-        mse,
-        psnr,
-        lpips_loss(inp.to(DEVICE).float(), recon.to(DEVICE).float()).mean().cpu(),
-        convn_loss(inp.to(DEVICE).float(), recon.to(DEVICE).float()).mean().cpu() * 100, 
-        # Multiply by 100 to observe the same scale as LPIPS
+        mse.cpu(),
+        psnr.cpu(),
+        lpips_loss(inp, recon, normalize=True).mean().cpu(),
+        convn_loss(inp, recon).mean().cpu(),
     )
 
 
 if __name__ == "__main__":
-    test_img = Image.open("test2.png")
+    test_img = Image.open("test.png")
     test_img = VF.to_tensor(test_img)
     test_inp = process(VF.resize(test_img, 1024).unsqueeze(0).to(DEVICE).to(DTYPE))
     test_img = VF.resize(test_img, 2048).unsqueeze(0)
@@ -119,12 +118,12 @@ if __name__ == "__main__":
     new_mse, new_psnr, new_lpips, new_convn = metrics(test_inp, new_recon)
 
     logger.info(
-        f"  - Orig: MSE: {ref_mse:.4f}, PSNR: {ref_psnr:.2f}, "
-        f"LPIPS: {ref_lpips:.4f}, ConvNeXt: {ref_convn:.4f}"
+        f"  - Orig: MSE: {ref_mse:.3e}, PSNR: {ref_psnr:.2f}, "
+        f"LPIPS: {ref_lpips:.4f}, ConvNeXt: {ref_convn:.3e}"
     )
     logger.info(
-        f"  - New : MSE: {new_mse:.4f}, PSNR: {new_psnr:.2f}, "
-        f"LPIPS: {new_lpips:.4f}, ConvNeXt: {new_convn:.4f}"
+        f"  - New : MSE: {new_mse:.3e}, PSNR: {new_psnr:.2f}, "
+        f"LPIPS: {new_lpips:.4f}, ConvNeXt: {new_convn:.3e}"
     )
 
     logger.info("Saving results...")
