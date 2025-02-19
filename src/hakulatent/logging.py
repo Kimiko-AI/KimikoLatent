@@ -30,7 +30,8 @@ if not logger.handlers:
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(
         ColoredFormatter(
-            "[%(name)s]-|%(asctime)s.%(msecs)03d|-%(levelname)s: %(message)s", "%H:%M:%S"
+            "[%(name)s]-|%(asctime)s.%(msecs)03d|-%(levelname)s: %(message)s",
+            "%H:%M:%S",
         )
     )
     logger.addHandler(handler)
