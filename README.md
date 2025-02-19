@@ -24,3 +24,16 @@ Quick PoC run (significant quality degrad but also significant smoother latent):
 | ![1739679876513](image/README/1739679876513.png) | ![1739679861314](image/README/1739679861314.png) |
 
 The 1~4 row are: original image, transformed image, decoded image from transformed latent, transformed latent
+
+## Cite
+```bibtex
+@misc{kohakublueleaf_hakulatent,
+    author       = {Shih-Ying Yeh (KohakuBlueLeaf)},
+    title        = {HakuLatent: A comprehensive codebase for training and finetuning Image <> Latent models},
+    year         = {2024},
+    publisher    = {GitHub},
+    journal      = {GitHub repository},
+    url          = {https://github.com/KohakuBlueleaf/HakuLatent},
+    note         = {Python library for training and finetuning Variational Autoencoders and related latent models, implementing EQ-VAE and other techniques.}
+}
+```
