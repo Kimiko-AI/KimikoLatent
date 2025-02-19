@@ -1,3 +1,5 @@
+import warnings
+
 import torch
 import torch.nn.functional as F
 import torchvision.transforms.functional as VF
@@ -11,8 +13,9 @@ from hakulatent.utils.latent import pca_to_rgb
 from hakulatent.logging import logger
 
 
-DEVICE = "cpu"
-DTYPE = torch.float32
+DEVICE = "cuda"
+DTYPE = torch.float16
+SHORT_AXIS_SIZE = 1024
 
 BASE_MODEL = "madebyollin/sdxl-vae-fp16-fix"
 # BASE_MODEL = "black-forest-labs/FLUX.1-schnell"
@@ -27,6 +30,14 @@ SUB_FOLDER2 = SUB_FOLDER
 
 # CKPT_PATH = "epoch=1-step=44000.ckpt"
 CKPT_PATH = "./HakuLatent/ubeak8fi/checkpoints/epoch=0-step=1000.ckpt"
+CKPT_PATH = "Y:/epoch=2-step=48000.ckpt"
+# CKPT_PATH = "Y:/epoch=1-step=16000.ckpt"
+
+
+warnings.filterwarnings(
+    "ignore",
+    ".*Found keys that are not in the model state dict but in the checkpoint.*",
+)
 
 
 def process(x):
@@ -65,10 +76,10 @@ def metrics(inp, recon):
 
 
 if __name__ == "__main__":
-    test_img = Image.open("test.png")
+    test_img = Image.open("test.jpg").convert("RGB")
     test_img = VF.to_tensor(test_img)
-    test_inp = process(VF.resize(test_img, 1024).unsqueeze(0).to(DEVICE).to(DTYPE))
-    test_img = VF.resize(test_img, 2048).unsqueeze(0)
+    test_inp = process(VF.resize(test_img, SHORT_AXIS_SIZE)[None].to(DEVICE).to(DTYPE))
+    test_img = VF.resize(test_img, SHORT_AXIS_SIZE * 2)[None]
 
     logger.info("Loading models...")
     vae_ref: AutoencoderKL = AutoencoderKL.from_pretrained(
@@ -118,11 +129,11 @@ if __name__ == "__main__":
     new_mse, new_psnr, new_lpips, new_convn = metrics(test_inp, new_recon)
 
     logger.info(
-        f"  - Orig: MSE: {ref_mse:.3e}, PSNR: {ref_psnr:.2f}, "
+        f"  - Orig: MSE: {ref_mse:.3e}, PSNR: {ref_psnr:.4f}, "
         f"LPIPS: {ref_lpips:.4f}, ConvNeXt: {ref_convn:.3e}"
     )
     logger.info(
-        f"  - New : MSE: {new_mse:.3e}, PSNR: {new_psnr:.2f}, "
+        f"  - New : MSE: {new_mse:.3e}, PSNR: {new_psnr:.4f}, "
         f"LPIPS: {new_lpips:.4f}, ConvNeXt: {new_convn:.3e}"
     )
 
@@ -145,4 +156,5 @@ if __name__ == "__main__":
     result_grid = result_grid[0]
     result_grid = (result_grid * 255).to(torch.uint8).numpy()
     result_grid = Image.fromarray(result_grid)
-    result_grid.save("result.webp", quality=95)
+    result_grid.save("result.jpg", quality=95)
+    logger.info("All done!")
