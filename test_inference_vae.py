@@ -32,6 +32,7 @@ SUB_FOLDER2 = SUB_FOLDER
 CKPT_PATH = "./HakuLatent/ubeak8fi/checkpoints/epoch=0-step=1000.ckpt"
 CKPT_PATH = "Y:/epoch=2-step=48000.ckpt"
 # CKPT_PATH = "Y:/epoch=1-step=16000.ckpt"
+CKPT_PATH2 = None
 
 
 warnings.filterwarnings(
@@ -76,7 +77,7 @@ def metrics(inp, recon):
 
 
 if __name__ == "__main__":
-    test_img = Image.open("test.jpg").convert("RGB")
+    test_img = Image.open("test3.png").convert("RGB")
     test_img = VF.to_tensor(test_img)
     test_inp = process(VF.resize(test_img, SHORT_AXIS_SIZE)[None].to(DEVICE).to(DTYPE))
     test_img = VF.resize(test_img, SHORT_AXIS_SIZE * 2)[None]
@@ -88,10 +89,18 @@ if __name__ == "__main__":
     vae: AutoencoderKL = AutoencoderKL.from_pretrained(
         BASE_MODEL2, subfolder=SUB_FOLDER2
     )
-    if BASE_MODEL2 == BASE_MODEL and SUB_FOLDER2 == SUB_FOLDER:
-        trainer_module = LatentTrainer.load_from_checkpoint(
+
+    if CKPT_PATH:
+        LatentTrainer.load_from_checkpoint(
             CKPT_PATH,
             vae=vae,
+            map_location="cpu",
+            strict=False,
+        )
+    if CKPT_PATH2:
+        LatentTrainer.load_from_checkpoint(
+            CKPT_PATH2,
+            vae=vae_ref,
             map_location="cpu",
             strict=False,
         )
