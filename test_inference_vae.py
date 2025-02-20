@@ -11,33 +11,28 @@ from convnext_perceptual_loss import ConvNextType, ConvNextPerceptualLoss
 from hakulatent.trainer import LatentTrainer
 from hakulatent.utils.latent import pca_to_rgb
 from hakulatent.logging import logger
+from hakulatent.models.approx import LatentApproxDecoder
 
 
 DEVICE = "cuda"
 DTYPE = torch.float16
-SHORT_AXIS_SIZE = 1024
+SHORT_AXIS_SIZE = 1536
 
 BASE_MODEL = "madebyollin/sdxl-vae-fp16-fix"
-# BASE_MODEL = "black-forest-labs/FLUX.1-schnell"
-# BASE_MODEL = "stabilityai/sd-vae-ft-mse"
 SUB_FOLDER = None
-# SUB_FOLDER = "vae"
 
-BASE_MODEL2 = BASE_MODEL
-SUB_FOLDER2 = SUB_FOLDER
-# BASE_MODEL2 = "stabilityai/stable-diffusion-3.5-large"
-# SUB_FOLDER2 = "vae"
+BASE_MODEL2 = "KBlueLeaf/EQ-SDXL-VAE"
+SUB_FOLDER2 = None
 
-# CKPT_PATH = "epoch=1-step=44000.ckpt"
-CKPT_PATH = "./HakuLatent/ubeak8fi/checkpoints/epoch=0-step=1000.ckpt"
-CKPT_PATH = "Y:/epoch=2-step=48000.ckpt"
-# CKPT_PATH = "Y:/epoch=1-step=16000.ckpt"
-CKPT_PATH2 = None
+CKPT_PATH = "./HakuLatent/954zn9xu/checkpoints/epoch=0-step=1000.ckpt"
+CKPT_PATH2 = "./HakuLatent/9k7r3t2y/checkpoints/epoch=0-step=1000.ckpt"
 
+USE_APPROX = True
+USE_APPROX2 = True
 
 warnings.filterwarnings(
     "ignore",
-    ".*Found keys that are not in the model state dict but in the checkpoint.*",
+    ".*Found keys that.*",
 )
 
 
@@ -77,7 +72,7 @@ def metrics(inp, recon):
 
 
 if __name__ == "__main__":
-    test_img = Image.open("test3.png").convert("RGB")
+    test_img = Image.open("test4.png").convert("RGB")
     test_img = VF.to_tensor(test_img)
     test_inp = process(VF.resize(test_img, SHORT_AXIS_SIZE)[None].to(DEVICE).to(DTYPE))
     test_img = VF.resize(test_img, SHORT_AXIS_SIZE * 2)[None]
@@ -90,17 +85,30 @@ if __name__ == "__main__":
         BASE_MODEL2, subfolder=SUB_FOLDER2
     )
 
+    if USE_APPROX:
+        vae_ref.decoder = LatentApproxDecoder(
+            latent_dim=vae_ref.config.latent_channels, out_channels=3, shuffle=2
+        )
+        vae_ref.decode = lambda x: vae_ref.decoder(x)
+        vae_ref.get_last_layer = lambda: vae_ref.decoder.conv_out.weight
+    if USE_APPROX2:
+        vae.decoder = LatentApproxDecoder(
+            latent_dim=vae.config.latent_channels, out_channels=3, shuffle=2
+        )
+        vae.decode = lambda x: vae.decoder(x)
+        vae.get_last_layer = lambda: vae.decoder.conv_out.weight
+
     if CKPT_PATH:
         LatentTrainer.load_from_checkpoint(
             CKPT_PATH,
-            vae=vae,
+            vae=vae_ref,
             map_location="cpu",
             strict=False,
         )
     if CKPT_PATH2:
         LatentTrainer.load_from_checkpoint(
             CKPT_PATH2,
-            vae=vae_ref,
+            vae=vae,
             map_location="cpu",
             strict=False,
         )
@@ -115,8 +123,14 @@ if __name__ == "__main__":
 
     logger.info("Running Decoding...")
 
-    original_recon = deprocess(vae_ref.decode(original_latent).sample.cpu().float())
-    new_recon = deprocess(vae.decode(new_latent).sample.cpu().float())
+    original_recon = vae_ref.decode(original_latent)
+    new_recon = vae.decode(new_latent)
+    if hasattr(original_recon, "sample"):
+        original_recon = original_recon.sample
+    if hasattr(new_recon, "sample"):
+        new_recon = new_recon.sample
+    original_recon = deprocess(original_recon.cpu().float())
+    new_recon = deprocess(new_recon.cpu().float())
 
     logger.info("Done, calculating results...")
     orig_latent_rgb = F.interpolate(
