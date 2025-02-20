@@ -29,21 +29,21 @@ else:
     print("Subprocess Starting:", __name__)
 
 
-BASE_MODEL = "madebyollin/sdxl-vae-fp16-fix"
+BASE_MODEL = "KBlueLeaf/EQ-SDXL-VAE"
 SUB_FOLDER = None
 EPOCHS = 1
 BATCH_SIZE = 32
 GRAD_ACC = 1
 GRAD_CKPT = False
 
-LOSS_TYPE = "l1"
-LPIPS_NET = "vgg"
-USE_CONVNEXT = True
-ADV_START_ITER = 1000
+LOSS_TYPE = "gnll"
+LPIPS_NET = None
+USE_CONVNEXT = False
+ADV_START_ITER = 5000
 
-NUM_WORKERS = 12
+NUM_WORKERS = 16
 SIZE = 512
-LR = 1e-3
+LR = 1e-5
 DLR = 5e-3
 
 
@@ -88,11 +88,15 @@ if __name__ == "__main__":
     vae.post_quant_conv = None
 
     approx = LatentApproxDecoder(
-        latent_dim=vae.config.latent_channels, out_channels=3, shuffle=2
+        latent_dim=vae.config.latent_channels,
+        out_channels=3,
+        shuffle=2,
+        # post_conv=False,
+        logvar=True,
     )
     vae.decoder = approx
     vae.decode = lambda x: approx(x)
-    vae.get_last_layer = lambda: approx.conv_out.weight
+    vae.get_last_layer = lambda: approx.last_layer().weight
 
     trainer_module = LatentTrainer(
         vae=vae,
@@ -107,12 +111,12 @@ if __name__ == "__main__":
                 "device": "cuda",
             },
             loss_weights={
-                LOSS_TYPE: 5.0,
+                LOSS_TYPE: 1.0,
                 "lpips": 0.5,
-                "convnext": 2.0,
+                "convnext": 1.0,
             },
         ),
-        adv_loss=None,
+        # adv_loss=AdvLoss(start_iter=ADV_START_ITER, n_layers=3),
         img_deprocess=deprocess,
         log_interval=100,
         loss_weights={
@@ -139,7 +143,7 @@ if __name__ == "__main__":
 
     logger = WandbLogger(
         project="HakuLatent",
-        name="SDXL-VAE-approx",
+        name="EQ-SDXL-VAE-approx",
         # offline=True,
     )
     trainer = pl.Trainer(

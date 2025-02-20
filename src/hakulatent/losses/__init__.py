@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 from convnext_perceptual_loss import ConvNextType
 
@@ -5,7 +6,12 @@ from .adversarial import AdvLoss
 from .perceptual import PerceptualLoss, LPIPSLoss, ConvNeXtPerceptualLoss
 
 
-loss_table = {"mse": nn.MSELoss, "l1": nn.L1Loss, "huber": nn.HuberLoss}
+loss_table = {
+    "mse": nn.MSELoss,
+    "l1": nn.L1Loss,
+    "huber": nn.HuberLoss,
+    "gnll": nn.GaussianNLLLoss,
+}
 
 
 class ReconLoss(nn.Module):
@@ -34,11 +40,18 @@ class ReconLoss(nn.Module):
             self.convn_loss = None
 
     def forward(self, x_real, x_recon):
-        base = self.loss(x_real, x_recon) * self.loss_weight
+        if isinstance(self.loss, nn.GaussianNLLLoss):
+            x_recon, var = torch.split(
+                x_recon, (x_real.size(1), x_recon.size(1) - x_real.size(1)), dim=1
+            )
+            # var = var.expand(-1, x_real.size(1), -1, -1)
+            base = self.loss(x_recon, x_real, torch.abs(var) + 1) * self.loss_weight
+        else:
+            base = self.loss(x_recon, x_real) * self.loss_weight
         if self.lpips_loss is not None:
-            lpips = self.lpips_loss(x_real, x_recon)
+            lpips = self.lpips_loss(x_recon, x_real)
             base += lpips * self.lpips_weight
         if self.convn_loss is not None:
-            convn = self.convn_loss(x_real, x_recon)
+            convn = self.convn_loss(x_recon, x_real)
             base += convn * self.convn_weight
         return base

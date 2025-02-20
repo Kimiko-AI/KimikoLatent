@@ -330,10 +330,10 @@ class LatentTrainer(BaseTrainer):
     def log_images(self, org_x, x, x_rec, latent):
         from PIL import Image
 
-        org_x = org_x.float()
-        x = x.float()
-        x_rec = x_rec.float()
-        latent = latent.float()
+        org_x = org_x.float()[:8]
+        x = x.float()[:8]
+        x_rec = x_rec.float()[:8, : x.size(1)]
+        latent = latent.float()[:8]
         latent_rgb = pca_to_rgb(latent)
 
         x = F.interpolate(x, size=org_x.shape[2:], mode="bicubic")
@@ -344,7 +344,7 @@ class LatentTrainer(BaseTrainer):
             [org_x, x, x_rec, latent_rgb], dim=-2
         )  # concat on height
         # take first 8 sample and concat them on width
-        concat_images = torch.cat(list(concat_images[:8]), dim=-1).cpu()
+        concat_images = torch.cat(list(concat_images), dim=-1).cpu()
         concat_images = (
             (concat_images.clamp(0, 1) * 255).to(torch.uint8).permute(1, 2, 0).numpy()
         )
