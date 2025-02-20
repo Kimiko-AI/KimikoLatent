@@ -2,6 +2,7 @@ lightning_logs/
 wandb/
 data/
 models/
+!src/*/models
 *.ckpt
 *.pt
 *.pth
