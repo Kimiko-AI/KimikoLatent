@@ -250,6 +250,8 @@ class LatentTrainer(BaseTrainer):
         x_rec = self.vae.decode(latent)
         if hasattr(x_rec, "sample"):
             x_rec = x_rec.sample
+        if x.shape[2:] != x_rec.shape[2:]:
+            x = F.interpolate(x, size=x_rec.shape[2:], mode="bicubic")
         return x, x_rec, latent, dist
 
     def recon_step(self, x, x_rec, dist, g_opt, g_sch, batch_idx, grad_acc):

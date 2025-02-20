@@ -20,10 +20,12 @@ def vanilla_loss(logits_real, logits_fake):
 
 
 class AdvLoss(nn.Module):
-    def __init__(self, start_iter: int, disc_loss: str = "hinge"):
+    def __init__(self, start_iter: int, disc_loss: str = "hinge", **kwargs):
         super().__init__()
         self.start_iter = start_iter
-        self.discriminator = HakuNLayerDiscriminator(n_layers=4)
+        if "n_layers" not in kwargs:
+            kwargs["n_layers"] = 4
+        self.discriminator = HakuNLayerDiscriminator(**kwargs)
         self.d_loss = hinge_loss if disc_loss == "hinge" else vanilla_loss
 
     def calc_adaptive_weight(self, rec_loss, g_loss, last_layer: nn.Module):
