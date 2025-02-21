@@ -28,6 +28,7 @@ if __name__ == "__main__":
         ScaleDownTransform,
         ScaleUpCropTransform,
         CropTransform,
+        RandomAffineTransform,
     )
     from hakulatent.trainer import LatentTrainer
     from hakulatent.losses import AdvLoss, ReconLoss
@@ -36,7 +37,7 @@ else:
     print("Subprocess Starting:", __name__)
 
 
-BASE_MODEL = "madebyollin/sdxl-vae-fp16-fix"
+BASE_MODEL = "KBlueLeaf/EQ-SDXL-VAE"
 SUB_FOLDER = None
 EPOCHS = 1
 BATCH_SIZE = 8
@@ -50,8 +51,8 @@ ADV_START_ITER = 1000
 
 NUM_WORKERS = 8
 SIZE = 256
-LR = 2e-5
-DLR = 5e-4
+LR = 5e-5
+DLR = 1e-3
 
 
 def process(x):
@@ -84,9 +85,13 @@ if __name__ == "__main__":
         num_workers=NUM_WORKERS,
         persistent_workers=bool(NUM_WORKERS),
     )
+    # loader warmup
+    next(iter(loader))
+
     vae: AutoencoderKL = AutoencoderKL.from_pretrained(BASE_MODEL, subfolder=SUB_FOLDER)
     if GRAD_CKPT:
         vae.enable_gradient_checkpointing()
+    vae.encoder = torch.compile(vae.encoder)
     vae.get_last_layer = lambda: vae.decoder.conv_out.weight
 
     trainer_module = LatentTrainer(
@@ -102,32 +107,34 @@ if __name__ == "__main__":
                 "device": "cuda",
             },
         ),
-        adv_loss=AdvLoss(start_iter=ADV_START_ITER),
+        adv_loss=AdvLoss(start_iter=ADV_START_ITER, n_layers=5),
         img_deprocess=deprocess,
-        transform_prob=0.65,
-        latent_transform=LatentTransformCompose(
-            RotationTransform(method="random"),
-            ScaleDownTransform(
-                method="random", scale_factors=[i / 32 for i in range(8, 32, 2)]
-            ),
-        ),
+        log_interval=100,
+        transform_prob=0.5,
+        latent_transform=RandomAffineTransform(
+            rotate_range=(-180, 180),
+            scale_range=(0.8, 1.2),
+            shear_range=((-10, 10), (-5, 5)),
+            translate_range=(0.1, 0.1),
+            method="random",
+        ),  # Thanks AmericanPresidentJimmyCarter
         loss_weights={
             "recon": 1.0,
-            "adv": 0.5,
-            "kl": 1e-6,
+            "adv": 0.25,
+            "kl": 5e-8,
         },
-        name="EQ-VAE-sdxl-ft-mse-imgnet",
+        name="EQ-SDXL-VAE-random-affine",
         lr=LR,
         lr_disc=DLR,
         optimizer="torch.optim.AdamW",
         opt_configs={"betas": (0.9, 0.98)},
         lr_sch_configs={
             "lr": {
-                "end": len(loader) * EPOCHS,
+                "end": len(loader) * EPOCHS // GRAD_ACC,
                 "value": 1.0,
-                "min_value": 0.1,
+                "min_value": 0.2,
                 "mode": "cosine",
-                "warmup": 10,
+                "warmup": 0,
             }
         },
         grad_acc=GRAD_ACC,
@@ -135,8 +142,8 @@ if __name__ == "__main__":
 
     logger = WandbLogger(
         project="HakuLatent",
-        name="EQ-VAE-sdxl-ft-mse-imgnet-AdvON",
-        # offline=True
+        name="EQ-SDXL-VAE-random-affine",
+        offline=True
     )
     trainer = pl.Trainer(
         logger=logger,
