@@ -1,6 +1,4 @@
-import math
 import random
-
 from math import sin, cos, radians
 
 import torch
@@ -22,7 +20,11 @@ def rotate(x: torch.Tensor, angle: int) -> torch.Tensor:
         return x.transpose(2, 3).flip(2)
 
 
-def crop(x: torch.Tensor, size: int | tuple[int, int], position: str) -> torch.Tensor:
+def crop(
+    x: torch.Tensor,
+    size: int | tuple[int, int],
+    position: str,
+) -> torch.Tensor:
     # x: (B, C, H, W)
     _, _, h, w = x.shape
     if isinstance(size, int):
@@ -44,11 +46,12 @@ def crop(x: torch.Tensor, size: int | tuple[int, int], position: str) -> torch.T
             (w - size_w) // 2 : (w + size_w) // 2,
         ]
 
+
 def affine_transform(
-    x: torch.Tensor, 
-    matrix: torch.Tensor, 
-    mode: str = "bilinear", 
-    padding_mode: str = "reflection"
+    x: torch.Tensor,
+    matrix: torch.Tensor,
+    mode: str = "bilinear",
+    padding_mode: str = "reflection",
 ):
     """
     Applies a 2x3 affine transform to x using grid_sample with reflection padding.
@@ -66,7 +69,9 @@ def affine_transform(
     grid = F.affine_grid(matrix, size=x.size(), align_corners=False).to(x.device)
 
     # Apply the transform
-    x_out = F.grid_sample(x, grid, mode=mode, padding_mode=padding_mode, align_corners=False)
+    x_out = F.grid_sample(
+        x, grid, mode=mode, padding_mode=padding_mode, align_corners=False
+    )
     return x_out
 
 
@@ -78,7 +83,7 @@ def build_affine_matrix(
     # The image/latent height & width to interpret translation in absolute or normalized coords
     height: int = 1,
     width: int = 1,
-    translate_in_pixels: bool = False
+    translate_in_pixels: bool = False,
 ) -> torch.Tensor:
     """
     Builds a 2x3 affine transformation matrix combining rotation, scaling, shear, translation.
@@ -92,31 +97,24 @@ def build_affine_matrix(
     angle = radians(angle_deg)
     shear_x = radians(shear_deg[0])
     shear_y = radians(shear_deg[1])
-    
+
     # Rotation matrix R
     # [ cosθ, -sinθ ]
     # [ sinθ,  cosθ ]
-    R = torch.tensor([
-        [ cos(angle), -sin(angle)],
-        [ sin(angle),  cos(angle)]
-    ], dtype=torch.float32)
+    R = torch.tensor(
+        [[cos(angle), -sin(angle)], [sin(angle), cos(angle)]], dtype=torch.float32
+    )
 
     # Scaling matrix S
     # [ sx,  0 ]
     # [ 0,  sy ]
-    S = torch.tensor([
-        [scale[0], 0.      ],
-        [0.,       scale[1]]
-    ], dtype=torch.float32)
+    S = torch.tensor([[scale[0], 0.0], [0.0, scale[1]]], dtype=torch.float32)
 
     # Shear matrix SH (for x-then-y shear)
     # for shear_x (along x-axis), shear_y (along y-axis):
     # [ 1,  shear_x ]
     # [ shear_y, 1 ]
-    SH = torch.tensor([
-        [1.,       shear_x],
-        [shear_y,  1.    ]
-    ], dtype=torch.float32)
+    SH = torch.tensor([[1.0, shear_x], [shear_y, 1.0]], dtype=torch.float32)
 
     # Compose these transformations: M = R * SH * S
     # (You could do a different order if desired.)
@@ -134,12 +132,13 @@ def build_affine_matrix(
         ty = 2.0 * translate[1] / max(height - 1, 1)
 
     # 2x3
-    affine_mat = torch.tensor([
-        [M_2x2[0,0], M_2x2[0,1], tx],
-        [M_2x2[1,0], M_2x2[1,1], ty]
-    ], dtype=torch.float32)
+    affine_mat = torch.tensor(
+        [[M_2x2[0, 0], M_2x2[0, 1], tx], [M_2x2[1, 0], M_2x2[1, 1], ty]],
+        dtype=torch.float32,
+    )
 
     return affine_mat
+
 
 def create_base_grid(B, H, W, device, dtype):
     """
@@ -148,7 +147,7 @@ def create_base_grid(B, H, W, device, dtype):
     """
     ys = torch.linspace(-1, 1, steps=H, device=device, dtype=dtype)
     xs = torch.linspace(-1, 1, steps=W, device=device, dtype=dtype)
-    grid_y, grid_x = torch.meshgrid(ys, xs, indexing='ij')  # (H, W)
+    grid_y, grid_x = torch.meshgrid(ys, xs, indexing="ij")  # (H, W)
     base_grid = torch.empty(B, H, W, 2, device=device, dtype=dtype)
     base_grid[..., 0] = grid_x  # X
     base_grid[..., 1] = grid_y  # Y
@@ -161,7 +160,7 @@ def gaussian_blur_2d(tensor, kernel_size=15, sigma=3.0):
     You could use kornia.filters.gaussian_blur2d if installed.
 
     TODO: Implement this
-    
+
     For demonstration, a simplified approach:
     """
     # One-liner if kornia is available:
@@ -174,28 +173,27 @@ def gaussian_blur_2d(tensor, kernel_size=15, sigma=3.0):
 
 def get_perspective_transform_4point(src_pts, dst_pts):
     """
-    Minimal function that mimics torchvision's get_perspective_transform, 
+    Minimal function that mimics torchvision's get_perspective_transform,
     or you can directly import:
     from torchvision.transforms.functional import _get_perspective_coeffs
-    For clarity, we provide an example here. 
+    For clarity, we provide an example here.
     src_pts, dst_pts: (4,2) each in normalized [-1..1] coords
     returns 3x3 homography (torch.Tensor)
     """
-    # We can solve a standard linear system. 
+    # We can solve a standard linear system.
     # For brevity, let's assume you can adapt from the TorchVision or Kornia sources:
     #    https://github.com/pytorch/vision/blob/master/torchvision/transforms/functional.py
     # We'll do a quick stand-in:
     # We'll rely on the actual built-in if possible:
     import torchvision.transforms.functional as F_tv
+
     coeffs = F_tv._get_perspective_coeffs(src_pts.tolist(), dst_pts.tolist())
     # coeffs are [a, b, c, d, e, f, g, h]
     # Construct 3x3
     a, b, c, d, e, f, g, h = coeffs
-    M = torch.tensor([
-        [a, b, c],
-        [d, e, f],
-        [g, h, 1]
-    ], device=src_pts.device, dtype=src_pts.dtype)
+    M = torch.tensor(
+        [[a, b, c], [d, e, f], [g, h, 1]], device=src_pts.device, dtype=src_pts.dtype
+    )
     return M
 
 
@@ -216,34 +214,31 @@ def warp_perspective_reflect(x, M):
     # fill with pixel coords in normalized range [-1,1]
     ys = torch.linspace(-1, 1, steps=H, device=device)
     xs = torch.linspace(-1, 1, steps=W, device=device)
-    grid_y, grid_x = torch.meshgrid(ys, xs, indexing='ij')
+    grid_y, grid_x = torch.meshgrid(ys, xs, indexing="ij")
     # shape (H, W)
     base_grid[:, :, :, 0] = grid_x  # X
     base_grid[:, :, :, 1] = grid_y  # Y
-    base_grid[:, :, :, 2] = 1       # homogeneous
+    base_grid[:, :, :, 2] = 1  # homogeneous
 
     # now multiply by M^T for each batch item
     # out_grid = base_grid @ M^T
     # but we do it per-batch. We'll reshape
-    base_grid_reshaped = base_grid.view(B, H*W, 3)  # (B, HW, 3)
-    M_t = M.transpose(1,2)                          # (B, 3, 3)
+    base_grid_reshaped = base_grid.view(B, H * W, 3)  # (B, HW, 3)
+    M_t = M.transpose(1, 2)  # (B, 3, 3)
 
-    out_coords = base_grid_reshaped.bmm(M_t)        # (B, HW, 3)
+    out_coords = base_grid_reshaped.bmm(M_t)  # (B, HW, 3)
     # Convert to 2D normalized
     # out_x = out_coords[:,:,0] / out_coords[:,:,2]
     # out_y = out_coords[:,:,1] / out_coords[:,:,2]
     denom = out_coords[..., 2:3] + 1e-8  # avoid div by zero
     out_xy = out_coords[..., 0:2] / denom
-    
+
     # reshape to (B, H, W, 2)
     out_xy = out_xy.view(B, H, W, 2)
-    
+
     # Now we can sample with grid_sample
     x_out = F.grid_sample(
-        x, out_xy, 
-        mode='bilinear', 
-        padding_mode='reflection', 
-        align_corners=False
+        x, out_xy, mode="bilinear", padding_mode="reflection", align_corners=False
     )
     return x_out
 
@@ -365,16 +360,17 @@ class ScaleUpCropTransform(LatentTransformBase):
 
 class RandomAffineTransform(LatentTransformBase):
     """
-    Applies a random affine transform (rotation, scale, shear, translation) 
+    Applies a random affine transform (rotation, scale, shear, translation)
     with reflection padding to avoid black borders.
     """
+
     def __init__(
         self,
-        rotate_range=(-30, 30),    # in degrees
-        scale_range=(0.8, 1.2),    # uniform scale factor range
-        shear_range=(-10, 10),     # in degrees for x-shear & y-shear
-        translate_range=(0.0, 0.0),# fraction of image dimension
-        method="random"
+        rotate_range=(-30, 30),  # in degrees
+        scale_range=(0.8, 1.2),  # uniform scale factor range
+        shear_range=(-10, 10),  # in degrees for x-shear & y-shear
+        translate_range=(0.0, 0.0),  # fraction of image dimension
+        method="random",
     ):
         """
         method: "random" (choose random each time) or "roundrobin" (cycle systematically).
@@ -416,7 +412,7 @@ class RandomAffineTransform(LatentTransformBase):
             shear_deg=(sx, sy),
             height=H,
             width=W,
-            translate_in_pixels=False  # interpreting translate as fraction
+            translate_in_pixels=False,  # interpreting translate as fraction
         )
         # Build 2x3 matrix for latent (which might have different spatial dims)
         BH, BW = latent.shape[2], latent.shape[3]
@@ -427,12 +423,14 @@ class RandomAffineTransform(LatentTransformBase):
             shear_deg=(sx, sy),
             height=BH,
             width=BW,
-            translate_in_pixels=False
+            translate_in_pixels=False,
         )
 
         # Apply transforms with reflection
         x_out = affine_transform(x, mat_x, mode="bilinear", padding_mode="reflection")
-        latent_out = affine_transform(latent, mat_latent, mode="bilinear", padding_mode="reflection")
+        latent_out = affine_transform(
+            latent, mat_latent, mode="bilinear", padding_mode="reflection"
+        )
 
         return x_out, latent_out
 
@@ -440,9 +438,10 @@ class RandomAffineTransform(LatentTransformBase):
 class RandomPerspectiveTransform(LatentTransformBase):
     """
     Applies a random perspective (projective) transform, again using reflection
-    to avoid black corners. Here we use torch's built-in 'grid_sample' after 
+    to avoid black corners. Here we use torch's built-in 'grid_sample' after
     generating a random perspective transform in the form of a 3x3 homography.
     """
+
     def __init__(self, distortion_scale=0.5):
         """
         distortion_scale (0..1): how extreme the perspective change can be.
@@ -458,43 +457,51 @@ class RandomPerspectiveTransform(LatentTransformBase):
         # If you want per-sample transforms, you'd do it B times.
         # Randomly shift corners:
         half_h, half_w = int(H * self.distortion_scale), int(W * self.distortion_scale)
-        
+
         # corners of the input in normalized coords [-1..1]
         # top-left, top-right, bottom-left, bottom-right
-        base_coords = torch.tensor([
-            [-1, -1], [1, -1], [-1, 1], [1, 1]
-        ], dtype=torch.float32, device=device)
-        
+        base_coords = torch.tensor(
+            [[-1, -1], [1, -1], [-1, 1], [1, 1]], dtype=torch.float32, device=device
+        )
+
         # random offsets
-        offsets = torch.empty_like(base_coords).uniform_(-self.distortion_scale, self.distortion_scale)
+        offsets = torch.empty_like(base_coords).uniform_(
+            -self.distortion_scale, self.distortion_scale
+        )
         # new corners
         new_coords = base_coords + offsets
 
         # Now we have original 4 corners -> new 4 corners in normalized coords
         # We can use kornia or we can solve for a 3x3 perspective matrix. For brevity,
         # let's do a quick function that solves for perspective using TorchVision's get_perspective_transform:
-        M = get_perspective_transform_4point(base_coords, new_coords).unsqueeze(0)  # (1,3,3)
+        M = get_perspective_transform_4point(base_coords, new_coords).unsqueeze(
+            0
+        )  # (1,3,3)
         # We'll do the same for latent (notice latent H/W might differ)
         BH, BW = latent.shape[2], latent.shape[3]
-        base_coords_latent = torch.tensor([
-            [-1, -1], [1, -1], [-1, 1], [1, 1]
-        ], dtype=torch.float32, device=device)
+        base_coords_latent = torch.tensor(
+            [[-1, -1], [1, -1], [-1, 1], [1, 1]], dtype=torch.float32, device=device
+        )
         # We can reuse the same "offsets" to keep them consistent
         new_coords_latent = base_coords_latent + offsets
-        M_latent = get_perspective_transform_4point(base_coords_latent, new_coords_latent).unsqueeze(0)
+        M_latent = get_perspective_transform_4point(
+            base_coords_latent, new_coords_latent
+        ).unsqueeze(0)
 
         # random perspective matrix of shape (1,3,3)
-        M = M.expand(B, -1, -1)                                        # (B,3,3)
-        M_latent = M_latent.expand(B, -1, -1)                                        # (B,3,3)
+        M = M.expand(B, -1, -1)  # (B,3,3)
+        M_latent = M_latent.expand(B, -1, -1)  # (B,3,3)
 
         # but for perspective, we might want F.grid_sample with a 3x3 matrix -> we can use
         # a custom approach with "torch.nn.functional.grid_sample + custom perspective" or kornia's warp_perspective.
-        # For demonstration, let's do the safe route with kornia if available. 
+        # For demonstration, let's do the safe route with kornia if available.
         # If not, we'll do a simpler approximate approach:
-        
-        x_out = warp_perspective_reflect(x, M)       # We'll define warp_perspective_reflect below
+
+        x_out = warp_perspective_reflect(
+            x, M
+        )  # We'll define warp_perspective_reflect below
         latent_out = warp_perspective_reflect(latent, M_latent)
-        
+
         return x_out, latent_out
 
 
@@ -503,6 +510,7 @@ class RandomElasticDeformation(LatentTransformBase):
     Example of an elastic (non-rigid) transform: we create a random displacement field,
     smooth it with a Gaussian, and warp the image via reflection padding.
     """
+
     def __init__(self, alpha=30.0, sigma=4.0):
         """
         alpha: scaling factor for displacement
@@ -518,20 +526,22 @@ class RandomElasticDeformation(LatentTransformBase):
         # Make random displacement fields for x & y
         # shape (B, 2, H, W)
         disp = torch.randn(B, 2, H, W, device=x.device, dtype=x.dtype)
-        
+
         # Optionally, blur (smooth) the displacement with a Gaussian
         # TODO fix this function
         # disp = gaussian_blur_2d(disp, kernel_size=int(4*self.sigma), sigma=self.sigma)
-        
+
         disp = disp * self.alpha  # scale up displacements
 
         # We'll build a sampling grid from the base grid plus disp in normalized coords
-        base_grid = create_base_grid(B, H, W, device=x.device, dtype=x.dtype)  # shape (B,H,W,2)
+        base_grid = create_base_grid(
+            B, H, W, device=x.device, dtype=x.dtype
+        )  # shape (B,H,W,2)
         # disp is in pixel coords => convert to normalized
-        disp_norm_x = 2.0 * disp[:,0] / max(W - 1, 1)
-        disp_norm_y = 2.0 * disp[:,1] / max(H - 1, 1)
+        disp_norm_x = 2.0 * disp[:, 0] / max(W - 1, 1)
+        disp_norm_y = 2.0 * disp[:, 1] / max(H - 1, 1)
         # shape (B,H,W)
-        
+
         # Add to base grid
         out_grid = torch.empty_like(base_grid)
         out_grid[..., 0] = base_grid[..., 0] + disp_norm_x
@@ -539,10 +549,7 @@ class RandomElasticDeformation(LatentTransformBase):
 
         # Warp x
         x_out = F.grid_sample(
-            x, out_grid,
-            mode='bilinear',
-            padding_mode='reflection',
-            align_corners=False
+            x, out_grid, mode="bilinear", padding_mode="reflection", align_corners=False
         )
 
         # We want the *same* displacement for latent (to remain equivariant)
@@ -552,24 +559,31 @@ class RandomElasticDeformation(LatentTransformBase):
         # But let's ensure the *same randomness* for consistent transform. We can fix a seed or pass it in.
         # Alternatively, you might want to scale the displacements to latent shape.
         # Here, let's do the same style. This requires the same random state or seed:
-        
-        disp_latent = torch.randn(B, 2, BH, BW, device=latent.device, dtype=latent.dtype)
-        disp_latent = gaussian_blur_2d(disp_latent, kernel_size=int(4*self.sigma), sigma=self.sigma)
+
+        disp_latent = torch.randn(
+            B, 2, BH, BW, device=latent.device, dtype=latent.dtype
+        )
+        disp_latent = gaussian_blur_2d(
+            disp_latent, kernel_size=int(4 * self.sigma), sigma=self.sigma
+        )
         disp_latent = disp_latent * self.alpha
-        
-        base_grid_latent = create_base_grid(B, BH, BW, device=latent.device, dtype=latent.dtype)
-        disp_norm_x_latent = 2.0 * disp_latent[:,0] / max(BW - 1, 1)
-        disp_norm_y_latent = 2.0 * disp_latent[:,1] / max(BH - 1, 1)
-        
+
+        base_grid_latent = create_base_grid(
+            B, BH, BW, device=latent.device, dtype=latent.dtype
+        )
+        disp_norm_x_latent = 2.0 * disp_latent[:, 0] / max(BW - 1, 1)
+        disp_norm_y_latent = 2.0 * disp_latent[:, 1] / max(BH - 1, 1)
+
         out_grid_latent = torch.empty_like(base_grid_latent)
         out_grid_latent[..., 0] = base_grid_latent[..., 0] + disp_norm_x_latent
         out_grid_latent[..., 1] = base_grid_latent[..., 1] + disp_norm_y_latent
 
         latent_out = F.grid_sample(
-            latent, out_grid_latent,
-            mode='bilinear',
-            padding_mode='reflection',
-            align_corners=False
+            latent,
+            out_grid_latent,
+            mode="bilinear",
+            padding_mode="reflection",
+            align_corners=False,
         )
 
         return x_out, latent_out
@@ -578,12 +592,15 @@ class RandomElasticDeformation(LatentTransformBase):
 if __name__ == "__main__":
     from .base import LatentTransformCompose
 
-    x = torch.randn(1, 3, 256, 256)
-    latent = torch.randn(1, 4, 32, 32)
+    x = torch.randn(1, 3, 512, 512)
+    latent = torch.randn(1, 4, 64, 64)
     transform = LatentTransformCompose(
         RotationTransform(method="random"),
         ScaleDownTransform(method="random"),
         ScaleUpCropTransform(method="random"),
+        RandomAffineTransform(method="random"),
+        RandomPerspectiveTransform(),
+        RandomElasticDeformation(),
     )
     for _ in range(10):
         x_trns, latent_trns = transform(x, latent)
