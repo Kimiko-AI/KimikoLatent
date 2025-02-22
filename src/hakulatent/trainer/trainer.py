@@ -263,10 +263,15 @@ class LatentTrainer(BaseTrainer):
 
     def recon_step(self, x, x_rec, latent, dist, g_opt, g_sch, batch_idx, grad_acc):
         recon_loss = self.recon_loss(x, x_rec)
-        kl_loss = torch.sum(dist.kl()) / x_rec.numel() * self.kl_loss_weight
+        kl_loss = torch.sum(dist.kl()) / x_rec.numel()
+        reg_loss = 0
         if self.latent_loss is not None:
-            kl_loss += self.latent_loss(latent) * self.reg_loss_weight
-        loss = recon_loss * self.recon_loss_weight + kl_loss
+            reg_loss += self.latent_loss(latent)
+        loss = (
+            recon_loss * self.recon_loss_weight
+            + kl_loss * self.kl_loss_weight
+            + reg_loss * self.reg_loss_weight
+        )
         adv_loss = torch.tensor(0.0, device=x.device)
         if (
             self.adv_loss is not None
@@ -297,6 +302,9 @@ class LatentTrainer(BaseTrainer):
         )
         self.log(
             "train/kl_loss", kl_loss.item(), on_step=True, prog_bar=True, logger=True
+        )
+        self.log(
+            "train/reg_loss", reg_loss.item(), on_step=True, prog_bar=True, logger=True
         )
         self.log("train/adv_loss", adv_loss.item(), prog_bar=True, logger=True)
         self.log(
