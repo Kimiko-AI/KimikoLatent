@@ -1,10 +1,6 @@
 """
 A demo script to finetune a pretrained VAE on ImageNet with the EQ-VAE setup.
 """
-
-from altair import Transform
-
-
 if __name__ == "__main__":
     import torch
     import torch.utils.data as data
@@ -118,7 +114,6 @@ if __name__ == "__main__":
             num_embed=1024,
             beta=0.25,
             use_kepler_loss=False,
-            legacy=True,
         ),
         # adv_loss=AdvLoss(start_iter=ADV_START_ITER, disc_loss="vanilla", n_layers=5),
         img_deprocess=deprocess,
