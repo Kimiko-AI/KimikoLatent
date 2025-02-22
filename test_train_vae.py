@@ -2,6 +2,9 @@
 A demo script to finetune a pretrained VAE on ImageNet with the EQ-VAE setup.
 """
 
+from altair import Transform
+
+
 if __name__ == "__main__":
     import torch
     import torch.utils.data as data
@@ -29,9 +32,10 @@ if __name__ == "__main__":
         ScaleUpCropTransform,
         CropTransform,
         RandomAffineTransform,
+        BlendingTransform,
     )
     from hakulatent.trainer import LatentTrainer
-    from hakulatent.losses import AdvLoss, ReconLoss
+    from hakulatent.losses import AdvLoss, ReconLoss, KeplerQuantizerRegLoss
 else:
     # This if-else can speedup multi-worker dataloader in windows
     print("Subprocess Starting:", __name__)
@@ -47,11 +51,11 @@ GRAD_CKPT = False
 LOSS_TYPE = "mse"
 LPIPS_NET = "vgg"
 USE_CONVNEXT = True
-ADV_START_ITER = 1000
+ADV_START_ITER = 0
 
 NUM_WORKERS = 8
 SIZE = 256
-LR = 5e-5
+LR = 1e-4
 DLR = 1e-3
 
 
@@ -107,17 +111,31 @@ if __name__ == "__main__":
                 "device": "cuda",
             },
         ),
-        adv_loss=AdvLoss(start_iter=ADV_START_ITER, n_layers=5),
+        latent_loss=KeplerQuantizerRegLoss(
+            embed_dim=vae.config.latent_channels,
+            scale=1,
+            partitions=1,
+            num_embed=1024,
+            beta=0.25,
+            use_kepler_loss=False,
+            legacy=True,
+        ),
+        # adv_loss=AdvLoss(start_iter=ADV_START_ITER, disc_loss="vanilla", n_layers=5),
         img_deprocess=deprocess,
         log_interval=100,
         transform_prob=0.5,
-        latent_transform=RandomAffineTransform(
-            rotate_range=(-180, 180),
-            scale_range=(0.8, 1.2),
-            shear_range=((-10, 10), (-5, 5)),
-            translate_range=(0.1, 0.1),
-            method="random",
-        ),  # Thanks AmericanPresidentJimmyCarter
+        latent_transform=LatentTransformCompose(
+            [
+                RandomAffineTransform(
+                    rotate_range=(-180, 180),
+                    scale_range=(0.8, 1.2),
+                    shear_range=((-10, 10), (-5, 5)),
+                    translate_range=(0.1, 0.1),
+                    method="random",
+                ),  # Thanks AmericanPresidentJimmyCarter
+                BlendingTransform([0.1, 0.9], method="random"),
+            ]
+        ),
         loss_weights={
             "recon": 1.0,
             "adv": 0.25,
@@ -142,8 +160,8 @@ if __name__ == "__main__":
 
     logger = WandbLogger(
         project="HakuLatent",
-        name="EQ-SDXL-VAE-random-affine",
-        offline=True
+        name="EQ-SDXL-VAE-random-affine-KepRegLoss",
+        # offline=True
     )
     trainer = pl.Trainer(
         logger=logger,
