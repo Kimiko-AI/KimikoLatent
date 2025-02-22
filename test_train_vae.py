@@ -1,6 +1,7 @@
 """
 A demo script to finetune a pretrained VAE on ImageNet with the EQ-VAE setup.
 """
+
 if __name__ == "__main__":
     import torch
     import torch.utils.data as data
@@ -120,21 +121,20 @@ if __name__ == "__main__":
         log_interval=100,
         transform_prob=0.5,
         latent_transform=LatentTransformCompose(
-            [
-                RandomAffineTransform(
-                    rotate_range=(-180, 180),
-                    scale_range=(0.8, 1.2),
-                    shear_range=((-10, 10), (-5, 5)),
-                    translate_range=(0.1, 0.1),
-                    method="random",
-                ),  # Thanks AmericanPresidentJimmyCarter
-                BlendingTransform([0.1, 0.9], method="random"),
-            ]
+            RandomAffineTransform(
+                rotate_range=(-180, 180),
+                scale_range=(0.8, 1.2),
+                shear_range=((-10, 10), (-5, 5)),
+                translate_range=(0.1, 0.1),
+                method="random",
+            ),  # Thanks AmericanPresidentJimmyCarter
+            BlendingTransform([0.1, 0.9], method="random"),
         ),
         loss_weights={
             "recon": 1.0,
             "adv": 0.25,
             "kl": 5e-8,
+            "reg": 1.0,
         },
         name="EQ-SDXL-VAE-random-affine",
         lr=LR,

@@ -176,11 +176,13 @@ class LatentTrainer(BaseTrainer):
             self.recon_loss_weight = loss_weights.get("recon", 1.0)
             self.adv_loss_weight = loss_weights.get("adv", 0.5)
             self.kl_loss_weight = loss_weights.get("kl", 1e-6)
+            self.reg_loss_weight = loss_weights.get("reg", 1.0)
         else:
             (
                 self.recon_loss_weight,
                 self.adv_loss_weight,
                 self.kl_loss_weight,
+                self.reg_loss_weight,
             ) = loss_weights
 
         self.grad_acc = grad_acc or 1
@@ -259,10 +261,12 @@ class LatentTrainer(BaseTrainer):
             x = F.interpolate(x, size=x_rec.shape[2:], mode="bicubic")
         return x, x_rec, latent, dist
 
-    def recon_step(self, x, x_rec, dist, g_opt, g_sch, batch_idx, grad_acc):
+    def recon_step(self, x, x_rec, latent, dist, g_opt, g_sch, batch_idx, grad_acc):
         recon_loss = self.recon_loss(x, x_rec)
-        kl_loss = torch.sum(dist.kl()) / x_rec.numel()
-        loss = recon_loss * self.recon_loss_weight + kl_loss * self.kl_loss_weight
+        kl_loss = torch.sum(dist.kl()) / x_rec.numel() * self.kl_loss_weight
+        if self.latent_loss is not None:
+            kl_loss += self.latent_loss(latent) * self.reg_loss_weight
+        loss = recon_loss * self.recon_loss_weight + kl_loss
         adv_loss = torch.tensor(0.0, device=x.device)
         if (
             self.adv_loss is not None
@@ -384,7 +388,7 @@ class LatentTrainer(BaseTrainer):
             )
 
         # VAE Loss
-        self.recon_step(x, x_rec, dist, g_opt, g_sch, idx, grad_acc)
+        self.recon_step(x, x_rec, latent, dist, g_opt, g_sch, idx, grad_acc)
 
         ## Discriminator Loss
         d_opt = list(d_opt)

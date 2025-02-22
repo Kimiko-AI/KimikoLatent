@@ -34,7 +34,6 @@ class KeplerQuantizerRegLoss(nn.Module):
 
     def forward(self, z):
         quantized, loss = self.quantizer(z)
-        print(loss)
         return loss.mean()
 
 
