@@ -106,6 +106,7 @@ class LatentTrainer(BaseTrainer):
         vae_compile: bool = False,
         lycoris_model: nn.Module | None = None,
         recon_loss: nn.Module = nn.MSELoss(),
+        latent_loss: nn.Module | None = None,
         adv_loss: AdvLoss | None = None,
         img_deprocess: Callable | None = None,
         loss_weights: tuple[int] = (1.0, 0.5, 1e-6),
@@ -168,6 +169,7 @@ class LatentTrainer(BaseTrainer):
         self.transform_prob = transform_prob
         self.log_interval = log_interval
 
+        self.latent_loss = latent_loss
         self.recon_loss = recon_loss
         self.adv_loss = adv_loss
         if isinstance(loss_weights, dict):
@@ -190,9 +192,12 @@ class LatentTrainer(BaseTrainer):
 
         if lycoris_model is not None:
             self.lycoris_model.train()
-            self.train_params = self.lycoris_model.parameters()
+            self.train_params = list(self.lycoris_model.parameters())
         else:
             self.train_params = [i for i in self.vae.parameters() if i.requires_grad]
+
+        if self.latent_loss is not None:
+            self.train_params = self.train_params + list(self.latent_loss.parameters())
 
         if self.adv_loss is not None and self.adv_loss_weight > 0:
             self.multiple_optimizers = True
