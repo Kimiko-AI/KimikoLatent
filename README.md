@@ -9,13 +9,24 @@ A comprehensive codebase for training and finetuning Image <> Latent models.
   - [ ] Decoder-only finetuning
   - [ ] PEFT
 - [X] Equivariance Regularization [EQ-VAE](https://arxiv.org/abs/2502.09509)
+  - [X] Rotate
+  - [X] Scale down
+  - [X] Scale up + crop
+  - [X] crop
+  - [X] random affine
+  - [X] blending
 - [X] Adversarial Loss
   - [ ] Investigate better discriminator setup
+- [ ] Latent Regularization
+  - [ ] Discrete VAE
+  - [X] Kepler Codebook Regularization Loss
 - [ ] Models
   - [ ] MAE for latent
   - [ ] windowed/natten attention for commonly used VAE setup
 
 ### EQ-VAE
+
+[KBlueLeaf/EQ-SDXL-VAE · Hugging Face](https://huggingface.co/KBlueLeaf/EQ-SDXL-VAE)
 
 Quick PoC run (significant quality degrad but also significant smoother latent):
 
@@ -26,6 +37,7 @@ Quick PoC run (significant quality degrad but also significant smoother latent):
 The 1~4 row are: original image, transformed image, decoded image from transformed latent, transformed latent
 
 ## Cite
+
 ```bibtex
 @misc{kohakublueleaf_hakulatent,
     author       = {Shih-Ying Yeh (KohakuBlueLeaf)},
