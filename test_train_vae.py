@@ -52,8 +52,10 @@ ADV_START_ITER = 0
 
 NUM_WORKERS = 8
 SIZE = 256
-LR = 1e-4
+LR = 5e-4
 DLR = 1e-3
+
+NEW_LATENT_DIM = 8
 
 
 def process(x):
@@ -92,7 +94,16 @@ if __name__ == "__main__":
     vae: AutoencoderKL = AutoencoderKL.from_pretrained(BASE_MODEL, subfolder=SUB_FOLDER)
     if GRAD_CKPT:
         vae.enable_gradient_checkpointing()
-    vae.encoder = torch.compile(vae.encoder)
+
+    if NEW_LATENT_DIM:
+        vae.config.latent_channels = NEW_LATENT_DIM
+        vae.encoder.conv_out = torch.nn.Conv2d(vae.encoder.conv_out.in_channels, NEW_LATENT_DIM*2, 3, 1, 1)
+        vae.decoder.conv_in = torch.nn.Conv2d(NEW_LATENT_DIM, vae.decoder.conv_in.out_channels, 3, 1, 1)
+        vae.quant_conv = torch.nn.Conv2d(NEW_LATENT_DIM*2, NEW_LATENT_DIM*2, 1)
+        torch.nn.init.zeros_(vae.quant_conv.bias)
+        torch.nn.init.zeros_(vae.quant_conv.weight)
+        vae.post_quant_conv = torch.nn.Conv2d(NEW_LATENT_DIM, NEW_LATENT_DIM, 1)
+
     vae.get_last_layer = lambda: vae.decoder.conv_out.weight
 
     trainer_module = LatentTrainer(
@@ -155,7 +166,7 @@ if __name__ == "__main__":
 
     logger = WandbLogger(
         project="HakuLatent",
-        name="EQ-SDXL-VAE-random-affine-KepRegLoss",
+        name="EQ-SDXL-VAE-ch8-random-affine-KepRegLoss",
         # offline=True
     )
     trainer = pl.Trainer(
