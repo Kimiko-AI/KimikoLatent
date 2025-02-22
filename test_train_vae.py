@@ -33,6 +33,7 @@ if __name__ == "__main__":
     )
     from hakulatent.trainer import LatentTrainer
     from hakulatent.losses import AdvLoss, ReconLoss, KeplerQuantizerRegLoss
+    from hakulatent.extune.linear import ScaleLinear, ScaleConv2d
 else:
     # This if-else can speedup multi-worker dataloader in windows
     print("Subprocess Starting:", __name__)
@@ -97,12 +98,21 @@ if __name__ == "__main__":
 
     if NEW_LATENT_DIM:
         vae.config.latent_channels = NEW_LATENT_DIM
-        vae.encoder.conv_out = torch.nn.Conv2d(vae.encoder.conv_out.in_channels, NEW_LATENT_DIM*2, 3, 1, 1)
-        vae.decoder.conv_in = torch.nn.Conv2d(NEW_LATENT_DIM, vae.decoder.conv_in.out_channels, 3, 1, 1)
-        vae.quant_conv = torch.nn.Conv2d(NEW_LATENT_DIM*2, NEW_LATENT_DIM*2, 1)
-        torch.nn.init.zeros_(vae.quant_conv.bias)
-        torch.nn.init.zeros_(vae.quant_conv.weight)
-        vae.post_quant_conv = torch.nn.Conv2d(NEW_LATENT_DIM, NEW_LATENT_DIM, 1)
+        vae.encoder.conv_out = ScaleConv2d(
+            "",
+            vae.encoder.conv_out,
+            vae.encoder.conv_out.in_channels,
+            NEW_LATENT_DIM * 2,
+        ).generate_module()
+        vae.decoder.conv_in = ScaleConv2d(
+            "", vae.decoder.conv_in, NEW_LATENT_DIM, vae.decoder.conv_in.out_channels
+        ).generate_module()
+        vae.quant_conv = ScaleConv2d(
+            "", vae.quant_conv, NEW_LATENT_DIM * 2, NEW_LATENT_DIM * 2, inputs_groups=[]
+        ).generate_module()
+        vae.post_quant_conv = ScaleConv2d(
+            "", vae.post_quant_conv, NEW_LATENT_DIM, NEW_LATENT_DIM
+        ).generate_module()
 
     vae.get_last_layer = lambda: vae.decoder.conv_out.weight
 
@@ -145,7 +155,7 @@ if __name__ == "__main__":
             "recon": 1.0,
             "adv": 0.25,
             "kl": 5e-8,
-            "reg": 1.0,
+            "reg": 0,
         },
         name="EQ-SDXL-VAE-random-affine",
         lr=LR,
