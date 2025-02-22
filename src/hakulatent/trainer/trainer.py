@@ -264,7 +264,7 @@ class LatentTrainer(BaseTrainer):
     def recon_step(self, x, x_rec, latent, dist, g_opt, g_sch, batch_idx, grad_acc):
         recon_loss = self.recon_loss(x, x_rec)
         kl_loss = torch.sum(dist.kl()) / x_rec.numel()
-        reg_loss = 0
+        reg_loss = torch.tensor(0.0, device=x.device)
         if self.latent_loss is not None:
             reg_loss += self.latent_loss(latent)
         loss = (
