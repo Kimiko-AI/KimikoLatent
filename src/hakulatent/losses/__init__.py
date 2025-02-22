@@ -4,6 +4,7 @@ from convnext_perceptual_loss import ConvNextType
 
 from .adversarial import AdvLoss
 from .perceptual import PerceptualLoss, LPIPSLoss, ConvNeXtPerceptualLoss
+from .vq_loss import KeplerQuantizerRegLoss
 
 
 loss_table = {
