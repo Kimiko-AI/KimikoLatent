@@ -16,23 +16,30 @@ from hakulatent.models.approx import LatentApproxDecoder
 
 DEVICE = "cuda"
 DTYPE = torch.float16
-SHORT_AXIS_SIZE = 1536
+SHORT_AXIS_SIZE = 1024
 
-BASE_MODEL = "madebyollin/sdxl-vae-fp16-fix"
-SUB_FOLDER = None
-
-BASE_MODEL2 = "KBlueLeaf/EQ-SDXL-VAE"
-SUB_FOLDER2 = None
-
-CKPT_PATH = "./HakuLatent/954zn9xu/checkpoints/epoch=0-step=1000.ckpt"
-CKPT_PATH2 = "./HakuLatent/9k7r3t2y/checkpoints/epoch=0-step=1000.ckpt"
-
-USE_APPROX = True
-USE_APPROX2 = True
+NAMES = [
+    "SDXL           ",
+    "EQ-SDXL-VAE    ",
+    "EQ-SDXL-VAE-advON",
+]
+BASE_MODELS = [
+    "madebyollin/sdxl-vae-fp16-fix",
+    "KBlueLeaf/EQ-SDXL-VAE",
+    "KBlueLeaf/EQ-SDXL-VAE",
+    # "./models/EQ-SDXL-VAE-ch8",
+]
+SUB_FOLDERS = [None, None, None]
+CKPT_PATHS = [
+    None, 
+    None, 
+    "Y:/EQ-SDXL-VAE-advft-ckpt/epoch=0-step=2000.ckpt",
+]
+USE_APPROXS = [False, False, False]
 
 warnings.filterwarnings(
     "ignore",
-    ".*Found keys that.*",
+    ".*Found keys that are not in the model state dict but in the checkpoint.*",
 )
 
 
@@ -44,7 +51,7 @@ def deprocess(x):
     return x * 0.5 + 0.5
 
 
-lpips_loss = lpips.LPIPS(net="vgg").eval().to(DEVICE).requires_grad_(False)
+lpips_loss = lpips.LPIPS(net="vgg").eval().to(DEVICE).requires_grad_(False).float()
 convn_loss = (
     ConvNextPerceptualLoss(
         device=DEVICE,
@@ -55,6 +62,7 @@ convn_loss = (
     )
     .eval()
     .requires_grad_(False)
+    .float()
 )
 
 
@@ -71,94 +79,120 @@ def metrics(inp, recon):
     )
 
 
+def model_distance(model1, model2):
+    state_dict1 = model1.state_dict()
+    state_dict2 = model2.state_dict()
+
+    distance = 0
+    total = 0
+
+    for key in state_dict1.keys():
+        if key in state_dict2 and state_dict1[key].shape == state_dict2[key].shape:
+            distance += torch.dist(state_dict1[key], state_dict2[key])
+            total += 1
+
+    return distance/total
+
+
 if __name__ == "__main__":
     test_img = Image.open("test4.png").convert("RGB")
     test_img = VF.to_tensor(test_img)
     test_inp = process(VF.resize(test_img, SHORT_AXIS_SIZE)[None].to(DEVICE).to(DTYPE))
     test_img = VF.resize(test_img, SHORT_AXIS_SIZE * 2)[None]
 
+    test_img2 = test_img
+    test_inp2 = test_inp
+
+    # test_img2 = Image.open("test5.png").convert("RGB")
+    # test_img2 = VF.to_tensor(test_img2)
+    # test_inp2 = process(
+    #     VF.resize(test_img2, list(test_inp.shape[-2:]))[None].to(DEVICE).to(DTYPE)
+    # )
+    # test_img2 = VF.resize(test_img2, list(test_img.shape[-2:]))[None]
+
     logger.info("Loading models...")
-    vae_ref: AutoencoderKL = AutoencoderKL.from_pretrained(
-        BASE_MODEL, subfolder=SUB_FOLDER
-    )
-    vae: AutoencoderKL = AutoencoderKL.from_pretrained(
-        BASE_MODEL2, subfolder=SUB_FOLDER2
-    )
+    vaes = []
+    for base_model, sub_folder, ckpt_path, use_approx in zip(
+        BASE_MODELS, SUB_FOLDERS, CKPT_PATHS, USE_APPROXS
+    ):
+        vae = AutoencoderKL.from_pretrained(base_model, subfolder=sub_folder)
+        if use_approx:
+            vae.decoder = LatentApproxDecoder(
+                latent_dim=vae.config.latent_channels,
+                out_channels=3,
+                shuffle=2,
+                # post_conv=False,
+                # logvar=True,
+            )
+            vae.decode = lambda x: vae.decoder(x)
+            vae.get_last_layer = lambda: vae.decoder.conv_out.weight
+        if ckpt_path:
+            LatentTrainer.load_from_checkpoint(
+                ckpt_path, vae=vae, map_location="cpu", strict=False
+            )
+        vae = vae.to(DTYPE).eval().requires_grad_(False).to(DEVICE)
+        vaes.append(vae)
 
-    if USE_APPROX:
-        vae_ref.decoder = LatentApproxDecoder(
-            latent_dim=vae_ref.config.latent_channels, out_channels=3, shuffle=2
-        )
-        vae_ref.decode = lambda x: vae_ref.decoder(x)
-        vae_ref.get_last_layer = lambda: vae_ref.decoder.conv_out.weight
-    if USE_APPROX2:
-        vae.decoder = LatentApproxDecoder(
-            latent_dim=vae.config.latent_channels, out_channels=3, shuffle=2
-        )
-        vae.decode = lambda x: vae.decoder(x)
-        vae.get_last_layer = lambda: vae.decoder.conv_out.weight
-
-    if CKPT_PATH:
-        LatentTrainer.load_from_checkpoint(
-            CKPT_PATH,
-            vae=vae_ref,
-            map_location="cpu",
-            strict=False,
-        )
-    if CKPT_PATH2:
-        LatentTrainer.load_from_checkpoint(
-            CKPT_PATH2,
-            vae=vae,
-            map_location="cpu",
-            strict=False,
-        )
-
-    vae = vae.to(DTYPE).eval().requires_grad_(False).to(DEVICE)
-    vae_ref = vae_ref.to(DTYPE).eval().requires_grad_(False).to(DEVICE)
+    logger.info("Calculating distances...")
+    for i in range(len(vaes)):
+        for j in range(i + 1, len(vaes)):
+            distance = model_distance(vaes[i], vaes[j])
+            logger.info(f"Distance between {i} and {j}: {distance}")
 
     logger.info("Running Encoding...")
 
-    original_latent = vae_ref.encode(test_inp).latent_dist.mode()
-    new_latent = vae.encode(test_inp).latent_dist.mode()
+    latent1s = []
+    for vae in vaes:
+        latent1s.append(vae.encode(test_inp).latent_dist.mode().float())
 
+    latent2s = []
+    for vae in vaes:
+        latent2s.append(vae.encode(test_inp2).latent_dist.mode().float())
+
+    latents = [
+        latent1 * 0.5 + latent2 * 0.5 for latent1, latent2 in zip(latent1s, latent2s)
+    ]
     logger.info("Running Decoding...")
 
-    original_recon = vae_ref.decode(original_latent)
-    new_recon = vae.decode(new_latent)
-    if hasattr(original_recon, "sample"):
-        original_recon = original_recon.sample
-    if hasattr(new_recon, "sample"):
-        new_recon = new_recon.sample
-    original_recon = deprocess(original_recon.cpu().float())
-    new_recon = deprocess(new_recon.cpu().float())
+    recons = []
+    for vae, latent in zip(vaes, latents):
+        recon = vae.decode(latent.to(DTYPE))
+        if hasattr(recon, "sample"):
+            recon = recon.sample
+        recon = deprocess(recon.cpu().float())[:, :3]
+        recons.append(recon)
 
     logger.info("Done, calculating results...")
-    orig_latent_rgb = F.interpolate(
-        pca_to_rgb(original_latent.cpu().float()[:, :4]),
-        original_recon.shape[-2:],
-        mode="nearest",
+    latent_rgbs = []
+    for latent in latents:
+        latent_rgbs.append(
+            F.interpolate(
+                pca_to_rgb(latent.cpu().float()), recons[-1].shape[-2:], mode="nearest"
+            )
+        )
+
+    test_inp = deprocess(
+        F.interpolate(test_inp, recons[-1].shape[-2:], mode="bilinear")
     )
-    new_latent_rgb = F.interpolate(
-        pca_to_rgb(new_latent.cpu().float()[:, :4]),
-        new_recon.shape[-2:],
-        mode="nearest",
+    test_inp2 = deprocess(
+        F.interpolate(test_inp2, recons[-1].shape[-2:], mode="bilinear")
     )
-    test_inp = deprocess(F.interpolate(test_inp, new_recon.shape[-2:], mode="bilinear"))
+    test_inp = 0.5 * test_inp + 0.5 * test_inp2
     test_img = F.interpolate(
-        test_img, [i * 2 for i in new_recon.shape[-2:]], mode="bilinear"
+        test_img, [i * 2 for i in recons[-1].shape[-2:]], mode="bilinear"
     )
+    test_img2 = F.interpolate(
+        test_img2, [i * 2 for i in recons[-1].shape[-2:]], mode="bilinear"
+    )
+    test_img = 0.5 * test_img + 0.5 * test_img2
 
-    ref_mse, ref_psnr, ref_lpips, ref_convn = metrics(test_inp, original_recon)
-    new_mse, new_psnr, new_lpips, new_convn = metrics(test_inp, new_recon)
-
-    logger.info(
-        f"  - Orig: MSE: {ref_mse:.3e}, PSNR: {ref_psnr:.4f}, "
-        f"LPIPS: {ref_lpips:.4f}, ConvNeXt: {ref_convn:.3e}"
-    )
-    logger.info(
-        f"  - New : MSE: {new_mse:.3e}, PSNR: {new_psnr:.4f}, "
-        f"LPIPS: {new_lpips:.4f}, ConvNeXt: {new_convn:.3e}"
-    )
+    mses, psnrs, lpipses, convnes = [], [], [], []
+    for name, recon in zip(NAMES, recons):
+        mse, psnr, lpips_, convn = metrics(test_inp.float(), recon.float())
+        logger.info(
+            f"  - {name}: MSE: {mse:.3e}, PSNR: {psnr:.4f}, "
+            f"LPIPS: {lpips_:.4f}, ConvNeXt: {convn:.3e}"
+        )
 
     logger.info("Saving results...")
     result_grid = torch.cat(
@@ -166,8 +200,8 @@ if __name__ == "__main__":
             test_img,
             torch.cat(
                 [
-                    torch.cat([orig_latent_rgb, new_latent_rgb], dim=-2),
-                    torch.cat([original_recon, new_recon], dim=-2),
+                    torch.cat([recon, latent_rgb], dim=-2)
+                    for recon, latent_rgb in zip(recons, latent_rgbs)
                 ],
                 dim=-1,
             ),
