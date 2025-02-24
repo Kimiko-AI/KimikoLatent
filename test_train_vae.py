@@ -43,8 +43,9 @@ BASE_MODEL = "KBlueLeaf/EQ-SDXL-VAE"
 SUB_FOLDER = None
 EPOCHS = 1
 BATCH_SIZE = 8
-GRAD_ACC = 4
+GRAD_ACC = 8
 GRAD_CKPT = False
+TRAIN_DEC_ONLY = True
 
 LOSS_TYPE = "mse"
 LPIPS_NET = "vgg"
@@ -53,10 +54,11 @@ ADV_START_ITER = 0
 
 NUM_WORKERS = 8
 SIZE = 256
-LR = 5e-4
+LR = 1e-3
 DLR = 1e-3
 
-NEW_LATENT_DIM = 8
+NEW_LATENT_DIM = None
+PRETRAIN = False
 
 
 def process(x):
@@ -114,6 +116,20 @@ if __name__ == "__main__":
             "", vae.post_quant_conv, NEW_LATENT_DIM, NEW_LATENT_DIM
         ).generate_module()
 
+    if PRETRAIN:
+        vae = AutoencoderKL(
+            down_block_types=["DownEncoderBlock2D"] * 4,
+            block_out_channels=[128, 256, 512, 512],
+            latent_channels=NEW_LATENT_DIM,
+            up_block_types=["UpDecoderBlock2D"] * 4,
+            layers_per_block=2,
+        )
+        vae.save_pretrained("./models/Kohaku-VAE")
+
+    if TRAIN_DEC_ONLY:
+        vae.requires_grad_(False)
+        vae.decoder.requires_grad_(True)
+
     vae.get_last_layer = lambda: vae.decoder.conv_out.weight
 
     trainer_module = LatentTrainer(
@@ -123,10 +139,15 @@ if __name__ == "__main__":
             lpips_net=LPIPS_NET,
             convnext_type=ConvNextType.TINY if USE_CONVNEXT else None,
             convnext_kwargs={
-                "feature_layers": [10, 12, 14],
+                "feature_layers": [2, 6, 10, 14],
                 "use_gram": False,
                 "input_range": (-1, 1),
                 "device": "cuda",
+            },
+            loss_weights={
+                LOSS_TYPE: 0.25,
+                "lpips": 0.3,
+                "convnext": 0.45,
             },
         ),
         latent_loss=KeplerQuantizerRegLoss(
@@ -149,24 +170,24 @@ if __name__ == "__main__":
                 translate_range=(0.1, 0.1),
                 method="random",
             ),  # Thanks AmericanPresidentJimmyCarter
-            BlendingTransform([0.1, 0.9], method="random"),
+            BlendingTransform([0.1, 0.4], method="random"),
         ),
         loss_weights={
-            "recon": 1.0,
+            "recon": 1 / 8,
             "adv": 0.25,
-            "kl": 5e-8,
-            "reg": 0,
+            "kl": 0,
+            "reg": 1.0,
         },
         name="EQ-SDXL-VAE-random-affine",
         lr=LR,
         lr_disc=DLR,
         optimizer="torch.optim.AdamW",
-        opt_configs={"betas": (0.9, 0.98)},
+        opt_configs={"betas": (0.9, 0.98), "weight_decay": 1e-2},
         lr_sch_configs={
             "lr": {
-                "end": len(loader) * EPOCHS // GRAD_ACC,
+                "end": EPOCHS * (len(loader) + 1) // GRAD_ACC,
                 "value": 1.0,
-                "min_value": 0.2,
+                "min_value": 0.1,
                 "mode": "cosine",
                 "warmup": 0,
             }
@@ -176,7 +197,7 @@ if __name__ == "__main__":
 
     logger = WandbLogger(
         project="HakuLatent",
-        name="EQ-SDXL-VAE-ch8-random-affine-KepRegLoss",
+        name="EQ-VAE-ch8-randomaffine-KepRegLoss",
         # offline=True
     )
     trainer = pl.Trainer(
