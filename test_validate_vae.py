@@ -23,26 +23,31 @@ if __name__ == "__main__":
     from hl_dataset.imagenet import ImageNetDataset
     from hakulatent.trainer import LatentTrainer
     from hakulatent.logging import logger
+    from hakulatent.models.approx import LatentApproxDecoder
 
     DEVICE = "cuda"
     DTYPE = torch.float16
     SHORT_AXIS_SIZE = 256
 
-    BASE_MODEL = "madebyollin/sdxl-vae-fp16-fix"
-    # BASE_MODEL = "black-forest-labs/FLUX.1-schnell"
-    # BASE_MODEL = "stabilityai/sd-vae-ft-mse"
-    SUB_FOLDER = None
-    # SUB_FOLDER = "vae"
 
-    BASE_MODEL2 = BASE_MODEL
-    SUB_FOLDER2 = SUB_FOLDER
-    # BASE_MODEL2 = "stabilityai/stable-diffusion-3.5-large"
-    # SUB_FOLDER2 = "vae"
-
-    # CKPT_PATH = "epoch=1-step=44000.ckpt"
-    CKPT_PATH = "./HakuLatent/ubeak8fi/checkpoints/epoch=0-step=1000.ckpt"
-    CKPT_PATH = "Y:/epoch=2-step=48000.ckpt"
-    # CKPT_PATH = "Y:/epoch=1-step=16000.ckpt"
+NAMES = [
+    "SDXL             ",
+    "EQ-SDXL-VAE      ",
+    "EQ-SDXL-VAE-advON",
+]
+BASE_MODELS = [
+    "madebyollin/sdxl-vae-fp16-fix",
+    "KBlueLeaf/EQ-SDXL-VAE",
+    "KBlueLeaf/EQ-SDXL-VAE",
+    # "./models/EQ-SDXL-VAE-ch8",
+]
+SUB_FOLDERS = [None, None, None]
+CKPT_PATHS = [
+    None,
+    None,
+    "Y:/EQ-SDXL-VAE-advft-ckpt/epoch=1-step=40000.ckpt",
+]
+USE_APPROXS = [False, False, False]
 
 
 def process(x):
@@ -54,8 +59,10 @@ def deprocess(x):
 
 
 if __name__ == "__main__":
-    lpips_loss = lpips.LPIPS(net="vgg").eval().to(DEVICE).requires_grad_(False)
-    convn_loss = (
+    lpips_loss = torch.compile(
+        lpips.LPIPS(net="vgg").eval().to(DEVICE).requires_grad_(False)
+    )
+    convn_loss = torch.compile(
         ConvNextPerceptualLoss(
             device=DEVICE,
             model_type=ConvNextType.TINY,
@@ -67,9 +74,8 @@ if __name__ == "__main__":
         .requires_grad_(False)
     )
 
+    @torch.compile
     def metrics(inp, recon):
-        inp = inp.to(DEVICE).float()
-        recon = recon.to(DEVICE).float()
         mse = F.mse_loss(inp, recon)
         psnr = 10 * torch.log10(1 / mse)
         return (
@@ -79,85 +85,86 @@ if __name__ == "__main__":
             convn_loss(inp, recon).mean().cpu(),
         )
 
-    valid_dataset = ImageNetDataset(
-        "val",
-        transform=Compose(
-            [
-                Resize(SHORT_AXIS_SIZE),
-                CenterCrop(SHORT_AXIS_SIZE),
-                ToTensor(),
-            ]
-        ),
+    transform = Compose(
+        [
+            Resize(SHORT_AXIS_SIZE),
+            CenterCrop(SHORT_AXIS_SIZE),
+            ToTensor(),
+        ]
     )
+    valid_dataset = ImageNetDataset("val", transform=transform)
+    test_dataset = ImageNetDataset("test", transform=transform)
     valid_loader = data.DataLoader(
-        valid_dataset,
+        data.ConcatDataset([valid_dataset, test_dataset]),
         batch_size=64,
         shuffle=False,
         num_workers=8,
         pin_memory=True,
-        drop_last=True,
         pin_memory_device=DEVICE,
     )
-    logger.info("Loading models...")
-    vae_ref: AutoencoderKL = AutoencoderKL.from_pretrained(
-        BASE_MODEL, subfolder=SUB_FOLDER
-    )
-    vae: AutoencoderKL = AutoencoderKL.from_pretrained(
-        BASE_MODEL2, subfolder=SUB_FOLDER2
-    )
-    if BASE_MODEL2 == BASE_MODEL and SUB_FOLDER2 == SUB_FOLDER:
-        trainer_module = LatentTrainer.load_from_checkpoint(
-            CKPT_PATH,
-            vae=vae,
-            map_location="cpu",
-            strict=False,
-        )
+    next(iter(valid_loader))
 
-    vae = vae.to(DTYPE).eval().requires_grad_(False).to(DEVICE)
-    vae_ref = vae_ref.to(DTYPE).eval().requires_grad_(False).to(DEVICE)
+    logger.info("Loading models...")
+    vaes = []
+    for base_model, sub_folder, ckpt_path, use_approx in zip(
+        BASE_MODELS, SUB_FOLDERS, CKPT_PATHS, USE_APPROXS
+    ):
+        vae = AutoencoderKL.from_pretrained(base_model, subfolder=sub_folder)
+        if use_approx:
+            vae.decoder = LatentApproxDecoder(
+                latent_dim=vae.config.latent_channels,
+                out_channels=3,
+                shuffle=2,
+                # post_conv=False,
+                # logvar=True,
+            )
+            vae.decode = lambda x: vae.decoder(x)
+            vae.get_last_layer = lambda: vae.decoder.conv_out.weight
+        if ckpt_path:
+            LatentTrainer.load_from_checkpoint(
+                ckpt_path, vae=vae, map_location="cpu", strict=False
+            )
+        vae = vae.to(DTYPE).eval().requires_grad_(False).to(DEVICE)
+        vae.encoder = torch.compile(vae.encoder)
+        vae.decoder = torch.compile(vae.decoder)
+        vaes.append(torch.compile(vae))
 
     logger.info("Running Validation")
-    all_ref_mse, all_ref_psnr, all_ref_lpips, all_ref_convn = [], [], [], []
-    all_new_mse, all_new_psnr, all_new_lpips, all_new_convn = [], [], [], []
+    total = 0
+    all_latents = [[] for _ in range(len(vaes))]
+    all_mse = [[] for _ in range(len(vaes))]
+    all_psnr = [[] for _ in range(len(vaes))]
+    all_lpips = [[] for _ in range(len(vaes))]
+    all_convn = [[] for _ in range(len(vaes))]
     for idx, batch in enumerate(tqdm(valid_loader)):
-        test_inp = process(batch[0].to(DTYPE).to(DEVICE))
+        image = batch[0].to(DEVICE)
+        test_inp = process(image).to(DTYPE)
+        batch_size = test_inp.size(0)
 
-        original_latent = vae_ref.encode(test_inp).latent_dist.mode()
-        new_latent = vae.encode(test_inp).latent_dist.mode()
-        original_recon = deprocess(vae_ref.decode(original_latent).sample.cpu().float())
-        new_recon = deprocess(vae.decode(new_latent).sample.cpu().float())
+        for i, vae in enumerate(vaes):
+            latent = vae.encode(test_inp).latent_dist.mode()
+            recon = deprocess(vae.decode(latent).sample.float())
+            all_latents[i].append(latent.cpu().float())
+            mse, psnr, lpips_, convn = metrics(image, recon)
+            all_mse[i].append(mse.cpu() * batch_size)
+            all_psnr[i].append(psnr.cpu() * batch_size)
+            all_lpips[i].append(lpips_.cpu() * batch_size)
+            all_convn[i].append(convn.cpu() * batch_size)
 
-        test_inp = deprocess(test_inp)
+        total += batch_size
 
-        ref_mse, ref_psnr, ref_lpips, ref_convn = metrics(test_inp, original_recon)
-        new_mse, new_psnr, new_lpips, new_convn = metrics(test_inp, new_recon)
+    for i in range(len(vaes)):
+        all_latents[i] = torch.cat(all_latents[i], dim=0)
+        all_mse[i] = torch.stack(all_mse[i]).sum() / total
+        all_psnr[i] = torch.stack(all_psnr[i]).sum() / total
+        all_lpips[i] = torch.stack(all_lpips[i]).sum() / total
+        all_convn[i] = torch.stack(all_convn[i]).sum() / total
 
-        all_ref_mse.append(ref_mse * test_inp.shape[0])
-        all_ref_psnr.append(ref_psnr * test_inp.shape[0])
-        all_ref_lpips.append(ref_lpips * test_inp.shape[0])
-        all_ref_convn.append(ref_convn * test_inp.shape[0])
-
-        all_new_mse.append(new_mse * test_inp.shape[0])
-        all_new_psnr.append(new_psnr * test_inp.shape[0])
-        all_new_lpips.append(new_lpips * test_inp.shape[0])
-        all_new_convn.append(new_convn * test_inp.shape[0])
-
-    ref_mse = torch.stack(all_ref_mse).float().sum() / len(valid_dataset)
-    ref_psnr = torch.stack(all_ref_psnr).float().sum() / len(valid_dataset)
-    ref_lpips = torch.stack(all_ref_lpips).float().sum() / len(valid_dataset)
-    ref_convn = torch.stack(all_ref_convn).float().sum() / len(valid_dataset)
-    new_mse = torch.stack(all_new_mse).float().sum() / len(valid_dataset)
-    new_psnr = torch.stack(all_new_psnr).float().sum() / len(valid_dataset)
-    new_lpips = torch.stack(all_new_lpips).float().sum() / len(valid_dataset)
-    new_convn = torch.stack(all_new_convn).float().sum() / len(valid_dataset)
-
-    logger.info(
-        f"  - Orig: MSE: {ref_mse:.3e}, PSNR: {ref_psnr:.4f}, "
-        f"LPIPS: {ref_lpips:.4f}, ConvNeXt: {ref_convn:.3e}"
-    )
-    logger.info(
-        f"  - New : MSE: {new_mse:.3e}, PSNR: {new_psnr:.4f}, "
-        f"LPIPS: {new_lpips:.4f}, ConvNeXt: {new_convn:.3e}"
-    )
+        logger.info(
+            f"  - {NAMES[i]}: MSE: {all_mse[i]:.3e}, PSNR: {all_psnr[i]:.4f}, "
+            f"LPIPS: {all_lpips[i]:.4f}, ConvNeXt: {all_convn[i]:.3e}"
+        )
 
     logger.info("Saving results...")
+    for name, latents in zip(NAMES, all_latents):
+        torch.save(latents, f"./output/{name.strip()}-latent.pt")
