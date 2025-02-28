@@ -85,6 +85,12 @@ class ReconLoss(nn.Module):
             self.convn_loss = None
 
     def forward(self, x_real, x_recon):
+        if isinstance(self.loss, nn.GaussianNLLLoss):
+            x_recon, var = torch.split(
+                x_recon, (x_real.size(1), x_recon.size(1) - x_real.size(1)), dim=1
+            )
+            # var = var.expand(-1, x_real.size(1), -1, -1)
+
         # losses relying on trained networks need to stay as sRGB
         x_real_srgb = x_real
         x_recon_srgb = x_recon
@@ -98,13 +104,10 @@ class ReconLoss(nn.Module):
             raise NotImplementedError
 
         if isinstance(self.loss, nn.GaussianNLLLoss):
-            x_recon, var = torch.split(
-                x_recon, (x_real.size(1), x_recon.size(1) - x_real.size(1)), dim=1
-            )
-            # var = var.expand(-1, x_real.size(1), -1, -1)
             base = self.loss(x_recon, x_real, torch.abs(var) + 1) * self.loss_weight
         else:
             base = self.loss(x_recon, x_real) * self.loss_weight
+
         if self.lpips_loss is not None:
             lpips = self.lpips_loss(x_recon_srgb, x_real_srgb)
             base += lpips * self.lpips_weight
