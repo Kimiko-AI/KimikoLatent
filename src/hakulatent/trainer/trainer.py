@@ -20,6 +20,7 @@ from ..utils.latent import pca_to_rgb
 from ..transform import LatentTransformBase
 from ..losses.adversarial import AdvLoss
 from ..losses.wavelet_loss import SWTLoss
+from ..losses.vf_loss import VFLoss
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -168,7 +169,7 @@ class LatentTrainer(BaseTrainer):
         self.transform = transform
         self.vae = vae
         self.lycoris_model = lycoris_model
-
+        self.vf_loss = VFLoss()
         self.img_deprocess = img_deprocess or (lambda x: x)
         self.transform = latent_transform
         self.transform_prob = transform_prob
@@ -274,8 +275,9 @@ class LatentTrainer(BaseTrainer):
             x = F.interpolate(x, size=x_rec.shape[2:], mode="bicubic")
         return orgin, x, x_rec, latent, dist
 
-    def recon_step(self, x, x_rec, latent, dist, g_opt, g_sch, batch_idx, grad_acc):
+    def recon_step(self, x, x_rec, latent, dist, g_opt, g_sch, batch_idx, grad_acc, imags):
         recon_loss = self.recon_loss(x, x_rec)
+        vf_loss = self.vf_loss(latent, imags)
         # --- Cycle loss ---
         cycle_loss = torch.tensor(0.0, device=x.device)
         if self.cycle_loss_weight > 0:
@@ -293,7 +295,7 @@ class LatentTrainer(BaseTrainer):
                 + kl_loss * self.kl_loss_weight
                 + reg_loss * self.reg_loss_weight
                 + cycle_loss * self.cycle_loss_weight
-                + swt
+                + swt + vf_loss
         )
         adv_loss = torch.tensor(0.0, device=x.device)
         if (
@@ -324,7 +326,7 @@ class LatentTrainer(BaseTrainer):
         )
 
         self.log(
-            "train/kl_loss", kl_loss.item(), on_step=True, prog_bar=True, logger=True
+            "train/kl_loss", vf_loss.item(), on_step=True, prog_bar=True, logger=True
         )
         self.log("train/cycle_loss", cycle_loss.item(), on_step=True, prog_bar=True, logger=True)
         self.log("train/swt_loss", swt.item(), on_step=True, prog_bar=True, logger=True)
@@ -430,7 +432,7 @@ class LatentTrainer(BaseTrainer):
             )
 
         # VAE Loss
-        self.recon_step(x, x_rec, latent, dist, g_opt, g_sch, idx, grad_acc)
+        self.recon_step(x, x_rec, latent, dist, g_opt, g_sch, idx, grad_acc, imgs)
 
         ## Discriminator Loss
         d_opt = list(d_opt)
