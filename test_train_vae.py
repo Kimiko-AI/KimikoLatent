@@ -20,8 +20,8 @@ if __name__ == "__main__":
     from diffusers import AutoencoderKL
     from convnext_perceptual_loss import ConvNextType
 
-    from hl_dataset.imagenet import ImageNetDataset
-    from hakulatent.transform import (
+    from src.hl_dataset.imagenet import ImageNetDataset
+    from src.hakulatent.transform import (
         LatentTransformCompose,
         LatentTransformSwitch,
         RotationTransform,
@@ -31,31 +31,32 @@ if __name__ == "__main__":
         RandomAffineTransform,
         BlendingTransform,
     )
-    from hakulatent.trainer import LatentTrainer
-    from hakulatent.losses import AdvLoss, ReconLoss, KeplerQuantizerRegLoss
-    from hakulatent.extune.linear import ScaleLinear, ScaleConv2d
+    from src.hakulatent.trainer import LatentTrainer
+    from src.hakulatent.losses import AdvLoss, ReconLoss, KeplerQuantizerRegLoss
+    from src.hakulatent.extune.linear import ScaleLinear, ScaleConv2d
 else:
     # This if-else can speedup multi-worker dataloader in windows
     print("Subprocess Starting:", __name__)
+torch.set_float32_matmul_precision('medium' )
+from torchvision.transforms import InterpolationMode
 
-
-BASE_MODEL = "KBlueLeaf/EQ-SDXL-VAE"
+BASE_MODEL = "diffusers/FLUX.1-vae"
 SUB_FOLDER = None
-EPOCHS = 1
+EPOCHS = 2
 BATCH_SIZE = 8
-GRAD_ACC = 8
-GRAD_CKPT = False
+GRAD_ACC = 4
+GRAD_CKPT = True
 TRAIN_DEC_ONLY = True
 
-LOSS_TYPE = "mse"
+LOSS_TYPE = "huber"
 LPIPS_NET = "vgg"
 USE_CONVNEXT = True
 ADV_START_ITER = 0
 
 NUM_WORKERS = 8
-SIZE = 256
-LR = 1e-3
-DLR = 1e-3
+SIZE =384
+LR = 1e-4
+DLR = 1e-4
 
 NEW_LATENT_DIM = None
 PRETRAIN = False
@@ -73,7 +74,7 @@ if __name__ == "__main__":
     split = "train"
     transform = Compose(
         [
-            Resize(SIZE),
+            Resize(512,  interpolation=InterpolationMode.BICUBIC),
             RandomCrop((SIZE, SIZE)),
             RandomHorizontalFlip(),
             RandomVerticalFlip(),
@@ -81,7 +82,7 @@ if __name__ == "__main__":
             Lambda(process),
         ]
     )
-    dataset = ImageNetDataset(split, transform)
+    dataset = ImageNetDataset(split)
     loader = data.DataLoader(
         dataset,
         batch_size=BATCH_SIZE,
@@ -95,9 +96,12 @@ if __name__ == "__main__":
     next(iter(loader))
 
     vae: AutoencoderKL = AutoencoderKL.from_pretrained(BASE_MODEL, subfolder=SUB_FOLDER)
+    ckpt = torch.load("/teamspace/studios/this_studio/KimikoLatent/HakuLatent/beb1otqu/checkpoints/epoch=1-step=4000.ckpt", map_location="cpu", weights_only = False)
+    vae.load_state_dict(ckpt["state_dict"], strict=False)
+    
     if GRAD_CKPT:
         vae.enable_gradient_checkpointing()
-
+    
     if NEW_LATENT_DIM:
         vae.config.latent_channels = NEW_LATENT_DIM
         vae.encoder.conv_out = ScaleConv2d(
@@ -125,14 +129,16 @@ if __name__ == "__main__":
             layers_per_block=2,
         )
         vae.save_pretrained("./models/Kohaku-VAE")
+        vae.compile()
 
     if TRAIN_DEC_ONLY:
         vae.requires_grad_(False)
         vae.decoder.requires_grad_(True)
-
+    
     vae.get_last_layer = lambda: vae.decoder.conv_out.weight
-
+    vae.compile()
     trainer_module = LatentTrainer(
+        transform = transform,
         vae=vae,
         recon_loss=ReconLoss(
             loss_type=LOSS_TYPE,
@@ -158,25 +164,16 @@ if __name__ == "__main__":
             beta=0.25,
             use_kepler_loss=False,
         ),
-        # adv_loss=AdvLoss(start_iter=ADV_START_ITER, disc_loss="vanilla", n_layers=5),
+        adv_loss=AdvLoss(start_iter=ADV_START_ITER, disc_loss="vanilla", n_layers=4),
         img_deprocess=deprocess,
         log_interval=100,
-        transform_prob=0.5,
-        latent_transform=LatentTransformCompose(
-            RandomAffineTransform(
-                rotate_range=(-180, 180),
-                scale_range=(0.8, 1.2),
-                shear_range=((-10, 10), (-5, 5)),
-                translate_range=(0.1, 0.1),
-                method="random",
-            ),  # Thanks AmericanPresidentJimmyCarter
-            BlendingTransform([0.1, 0.4], method="random"),
-        ),
         loss_weights={
-            "recon": 1 / 8,
+            "recon": 1,
             "adv": 0.25,
-            "kl": 0,
-            "reg": 1.0,
+            "kl": 0.00001,
+            "reg": 0,
+            "cycle": 0.25,
+            
         },
         name="EQ-SDXL-VAE-random-affine",
         lr=LR,
@@ -197,16 +194,17 @@ if __name__ == "__main__":
 
     logger = WandbLogger(
         project="HakuLatent",
-        name="EQ-VAE-ch8-randomaffine-KepRegLoss",
+        name="EQ-VAE-ch16-randomaffine",
         # offline=True
     )
     trainer = pl.Trainer(
         logger=logger,
         devices=1,
         max_epochs=EPOCHS,
-        precision="16-mixed",
+        precision="bf16-mixed",
         callbacks=[
-            ModelCheckpoint(every_n_train_steps=1000),
+            ModelCheckpoint(every_n_train_steps=500),
+            ModelCheckpoint(every_n_epochs = 1, save_on_train_epoch_end = True),
             LearningRateMonitor(logging_interval="step"),
         ],
         log_every_n_steps=1,

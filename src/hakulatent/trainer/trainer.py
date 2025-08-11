@@ -19,30 +19,34 @@ from ..utils import instantiate
 from ..utils.latent import pca_to_rgb
 from ..transform import LatentTransformBase
 from ..losses.adversarial import AdvLoss
+from ..losses.wavelet_loss import SWTLoss
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 
 class BaseTrainer(pl.LightningModule):
     def __init__(
-        self,
-        *args,
-        name: str = "",
-        lr: float = 1e-5,
-        optimizer: type[optim.Optimizer] = optim.AdamW,
-        opt_configs: dict[str, Any] | list[dict[str, Any]] = {
-            "weight_decay": 0.01,
-            "betas": (0.9, 0.999),
-        },
-        lr_sch_configs: dict[str, dict[str, Any]] | list[dict[str, Any]] = {
-            "lr": {
-                "end": 10000,
-                "value": 1.0,
-                "min_value": 0.01,
-                "mode": "cosine",
-                "warmup": 1000,
-            }
-        },
-        multiple_optimizers: bool = False,
-        **kwargs,
+            self,
+            *args,
+            name: str = "",
+            lr: float = 1e-5,
+            optimizer: type[optim.Optimizer] = optim.AdamW,
+            opt_configs: dict[str, Any] | list[dict[str, Any]] = {
+                "weight_decay": 0.01,
+                "betas": (0.9, 0.999),
+            },
+            lr_sch_configs: dict[str, dict[str, Any]] | list[dict[str, Any]] = {
+                "lr": {
+                    "end": 10000,
+                    "value": 1.0,
+                    "min_value": 0.01,
+                    "mode": "cosine",
+                    "warmup": 1000,
+                }
+            },
+            multiple_optimizers: bool = False,
+            **kwargs,
     ):
         super().__init__()
         self.name = name
@@ -73,11 +77,11 @@ class BaseTrainer(pl.LightningModule):
 
         results = []
         for train_params, lr, optimizer, opt_configs, lr_sch_configs in zip(
-            self.train_params,
-            self.lr,
-            self.optimizer,
-            self.opt_configs,
-            self.lr_sch_configs,
+                self.train_params,
+                self.lr,
+                self.optimizer,
+                self.opt_configs,
+                self.lr_sch_configs,
         ):
             optimizer = optimizer(train_params, lr=lr, **opt_configs)
 
@@ -101,39 +105,40 @@ class LatentTrainer(BaseTrainer):
     automatic_optimization = False
 
     def __init__(
-        self,
-        vae: AutoencoderKL | None = None,
-        vae_compile: bool = False,
-        lycoris_model: nn.Module | None = None,
-        recon_loss: nn.Module = nn.MSELoss(),
-        latent_loss: nn.Module | None = None,
-        adv_loss: AdvLoss | None = None,
-        img_deprocess: Callable | None = None,
-        loss_weights: tuple[int] = (1.0, 0.5, 1e-6),
-        latent_transform: LatentTransformBase | None = None,
-        transform_prob: float = 0.5,
-        log_interval: int = 500,
-        *args,
-        name: str = "",
-        lr: float = 1e-5,
-        lr_disc: float = None,
-        grad_acc: int | dict[int, int] = 1,
-        optimizer: type[optim.Optimizer] = optim.AdamW,
-        opt_configs: dict[str, Any] = {
-            "weight_decay": 0.01,
-            "betas": (0.9, 0.999),
-        },
-        lr_sch_configs: dict[str, dict[str, Any]] = {
-            "lr": {
-                "end": 10000,
-                "value": 1.0,
-                "min_value": 0.01,
-                "mode": "cosine",
-                "warmup": 1000,
-            }
-        },
-        full_config: dict[str, Any] = {},
-        **kwargs,
+            self,
+            vae: AutoencoderKL | None = None,
+            vae_compile: bool = False,
+            lycoris_model: nn.Module | None = None,
+            recon_loss: nn.Module = nn.MSELoss(),
+            latent_loss: nn.Module | None = None,
+            adv_loss: AdvLoss | None = None,
+            img_deprocess: Callable | None = None,
+            loss_weights: tuple[int] = (1.0, 0.5, 1e-6),
+            latent_transform: LatentTransformBase | None = None,
+            transform_prob: float = 0.5,
+            log_interval: int = 500,
+            *args,
+            name: str = "",
+            lr: float = 1e-5,
+            transform = None,
+            lr_disc: float = None,
+            grad_acc: int | dict[int, int] = 1,
+            optimizer: type[optim.Optimizer] = optim.AdamW,
+            opt_configs: dict[str, Any] = {
+                "weight_decay": 0.01,
+                "betas": (0.9, 0.999),
+            },
+            lr_sch_configs: dict[str, dict[str, Any]] = {
+                "lr": {
+                    "end": 10000,
+                    "value": 1.0,
+                    "min_value": 0.01,
+                    "mode": "cosine",
+                    "warmup": 1000,
+                }
+            },
+            full_config: dict[str, Any] = {},
+            **kwargs,
     ):
         super().__init__(
             *args,
@@ -160,7 +165,7 @@ class LatentTrainer(BaseTrainer):
             vae = torch.compile(vae)
         if lycoris_model is not None:
             vae.requires_grad_(False).eval()
-
+        self.transform = transform
         self.vae = vae
         self.lycoris_model = lycoris_model
 
@@ -171,18 +176,25 @@ class LatentTrainer(BaseTrainer):
 
         self.latent_loss = latent_loss
         self.recon_loss = recon_loss
+        self.swt = SWTLoss(loss_weight_ll=0.05, loss_weight_lh=0.025, loss_weight_hl=0.025, loss_weight_hh=0.02)
+
         self.adv_loss = adv_loss
         if isinstance(loss_weights, dict):
             self.recon_loss_weight = loss_weights.get("recon", 1.0)
             self.adv_loss_weight = loss_weights.get("adv", 0.5)
             self.kl_loss_weight = loss_weights.get("kl", 1e-6)
             self.reg_loss_weight = loss_weights.get("reg", 1.0)
+            self.cycle_loss_weight = loss_weights.get("cycle", 0.1)
+            self.swt_loss_weight = loss_weights.get("swt", 1)
+
         else:
             (
                 self.recon_loss_weight,
                 self.adv_loss_weight,
                 self.kl_loss_weight,
                 self.reg_loss_weight,
+                self.cycle_loss_weight,
+                self.swt_loss_weight,
             ) = loss_weights
 
         self.grad_acc = grad_acc or 1
@@ -251,6 +263,7 @@ class LatentTrainer(BaseTrainer):
         dist.deterministic = False
 
         latent = dist.sample()
+        orgin = latent
         if self.transform is not None and random.random() < self.transform_prob:
             x, latent = self.transform(x, latent)
 
@@ -259,24 +272,33 @@ class LatentTrainer(BaseTrainer):
             x_rec = x_rec.sample
         if x.shape[2:] != x_rec.shape[2:]:
             x = F.interpolate(x, size=x_rec.shape[2:], mode="bicubic")
-        return x, x_rec, latent, dist
+        return orgin, x, x_rec, latent, dist
 
     def recon_step(self, x, x_rec, latent, dist, g_opt, g_sch, batch_idx, grad_acc):
         recon_loss = self.recon_loss(x, x_rec)
+        # --- Cycle loss ---
+        cycle_loss = torch.tensor(0.0, device=x.device)
+        if self.cycle_loss_weight > 0:
+            with torch.no_grad():  # detach to avoid gradient loops on the VAE
+                orgin, a, latent_cycle, c, d = self.basic_step(x_rec)
+            cycle_loss = F.mse_loss(x, latent_cycle)
+
         kl_loss = torch.sum(dist.kl()) / x_rec.numel()
         reg_loss = torch.tensor(0.0, device=x.device)
+        swt = self.swt(x_rec, x)
         if self.latent_loss is not None:
             reg_loss += self.latent_loss(latent)
         loss = (
-            recon_loss * self.recon_loss_weight
-            + kl_loss * self.kl_loss_weight
-            + reg_loss * self.reg_loss_weight
+                recon_loss * self.recon_loss_weight
+                + kl_loss * self.kl_loss_weight
+                + reg_loss * self.reg_loss_weight
+                + cycle_loss * self.cycle_loss_weight
+                + swt
         )
         adv_loss = torch.tensor(0.0, device=x.device)
         if (
-            self.adv_loss is not None
-            and self.adv_loss_weight > 0
-            and self.global_step >= self.start_iter
+                self.adv_loss is not None
+                and self.adv_loss_weight > 0
         ):
             adv_loss = self.adv_loss(x, x_rec, recon_loss, 0, self.vae.get_last_layer())
         loss += adv_loss * self.adv_loss_weight
@@ -300,9 +322,13 @@ class LatentTrainer(BaseTrainer):
             prog_bar=True,
             logger=True,
         )
+
         self.log(
             "train/kl_loss", kl_loss.item(), on_step=True, prog_bar=True, logger=True
         )
+        self.log("train/cycle_loss", cycle_loss.item(), on_step=True, prog_bar=True, logger=True)
+        self.log("train/swt_loss", swt.item(), on_step=True, prog_bar=True, logger=True)
+
         self.log(
             "train/reg_loss", reg_loss.item(), on_step=True, prog_bar=True, logger=True
         )
@@ -314,6 +340,13 @@ class LatentTrainer(BaseTrainer):
             logger=True,
             prog_bar=True,
         )
+
+    def on_load_checkpoint(self, checkpoint):
+        # Keep only the state_dict
+        keys_to_keep = ["state_dict"]
+        for k in list(checkpoint.keys()):
+            if k not in keys_to_keep:
+                checkpoint.pop(k, None)
 
     def adv_step(self, x, x_rec, d_opt, d_sch, batch_idx, grad_acc):
         d_opt = d_opt[0]
@@ -374,9 +407,10 @@ class LatentTrainer(BaseTrainer):
     def training_step(self, batch, idx):
         x: torch.Tensor
         dist: DiagonalGaussianDistribution
-        x, *_ = batch
+        imgs, *_ = batch
+        x = self.transform(x)
         org_x = x.clone()
-        x, x_rec, latent, dist = self.basic_step(x)
+        origin_latent, x, x_rec, latent, dist = self.basic_step(x)
         try:
             g_opt, *d_opt = self.optimizers()
             g_sch, *d_sch = self.lr_schedulers()

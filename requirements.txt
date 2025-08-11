@@ -1,0 +1,11 @@
+torch
+numpy
+omegaconf
+diffusers
+torchvision
+matplotlib
+tqdm
+pillow
+lpips
+git+https://github.com/KohakuBlueleaf/AnySchedule
+git+https://github.com/sypsyp97/convnext_perceptual_loss
