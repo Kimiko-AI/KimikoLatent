@@ -43,10 +43,10 @@ from torchvision.transforms import InterpolationMode
 BASE_MODEL = "diffusers/FLUX.1-vae"
 SUB_FOLDER = None
 EPOCHS = 2
-BATCH_SIZE = 8
+BATCH_SIZE = 4
 GRAD_ACC = 4
 GRAD_CKPT = True
-TRAIN_DEC_ONLY = True
+TRAIN_DEC_ONLY = False
 
 LOSS_TYPE = "huber"
 LPIPS_NET = "vgg"
@@ -82,7 +82,7 @@ if __name__ == "__main__":
             Lambda(process),
         ]
     )
-    dataset = ImageNetDataset(split)
+    dataset = ImageNetDataset(split, transform)
     loader = data.DataLoader(
         dataset,
         batch_size=BATCH_SIZE,
@@ -96,12 +96,9 @@ if __name__ == "__main__":
     next(iter(loader))
 
     vae: AutoencoderKL = AutoencoderKL.from_pretrained(BASE_MODEL, subfolder=SUB_FOLDER)
-    ckpt = torch.load("/teamspace/studios/this_studio/KimikoLatent/HakuLatent/beb1otqu/checkpoints/epoch=1-step=4000.ckpt", map_location="cpu", weights_only = False)
-    vae.load_state_dict(ckpt["state_dict"], strict=False)
-    
     if GRAD_CKPT:
         vae.enable_gradient_checkpointing()
-    
+
     if NEW_LATENT_DIM:
         vae.config.latent_channels = NEW_LATENT_DIM
         vae.encoder.conv_out = ScaleConv2d(
@@ -134,7 +131,7 @@ if __name__ == "__main__":
     if TRAIN_DEC_ONLY:
         vae.requires_grad_(False)
         vae.decoder.requires_grad_(True)
-    
+
     vae.get_last_layer = lambda: vae.decoder.conv_out.weight
     vae.compile()
     trainer_module = LatentTrainer(
@@ -172,7 +169,7 @@ if __name__ == "__main__":
             "kl": 0.00001,
             "reg": 0,
             "cycle": 0.25,
-            
+
         },
         name="EQ-SDXL-VAE-random-affine",
         lr=LR,
@@ -200,7 +197,7 @@ if __name__ == "__main__":
         logger=logger,
         devices=1,
         max_epochs=EPOCHS,
-        precision="bf16-mixed",
+        precision="32",
         callbacks=[
             ModelCheckpoint(every_n_train_steps=500),
             ModelCheckpoint(every_n_epochs = 1, save_on_train_epoch_end = True),
