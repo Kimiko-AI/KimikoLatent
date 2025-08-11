@@ -27,8 +27,7 @@ class VFLoss(nn.Module):
         self.dinov2.eval()
         for p in self.dinov2.parameters():
             p.requires_grad_(False)
-        self.data_config = timm.data.resolve_model_data_config(dinov2_name)
-        self.transforms = timm.data.create_transform(**self.data_config, is_training=False)
+
     def _init_proj(self, dz):
         self.proj = nn.Conv2d(dz, self.df, kernel_size=1, bias=False)
         nn.init.kaiming_normal_(self.proj.weight, nonlinearity='linear')

@@ -121,7 +121,6 @@ class LatentTrainer(BaseTrainer):
             *args,
             name: str = "",
             lr: float = 1e-5,
-            transform = None,
             lr_disc: float = None,
             grad_acc: int | dict[int, int] = 1,
             optimizer: type[optim.Optimizer] = optim.AdamW,
@@ -166,7 +165,6 @@ class LatentTrainer(BaseTrainer):
             vae = torch.compile(vae)
         if lycoris_model is not None:
             vae.requires_grad_(False).eval()
-        self.transform = transform
         self.vae = vae
         self.lycoris_model = lycoris_model
         self.vf_loss = VFLoss()
@@ -409,8 +407,7 @@ class LatentTrainer(BaseTrainer):
     def training_step(self, batch, idx):
         x: torch.Tensor
         dist: DiagonalGaussianDistribution
-        imgs, *_ = batch
-        x = self.transform(x)
+        x, dino = batch
         org_x = x.clone()
         origin_latent, x, x_rec, latent, dist = self.basic_step(x)
         try:
@@ -432,7 +429,7 @@ class LatentTrainer(BaseTrainer):
             )
 
         # VAE Loss
-        self.recon_step(x, x_rec, latent, dist, g_opt, g_sch, idx, grad_acc, imgs)
+        self.recon_step(x, x_rec, latent, dist, g_opt, g_sch, idx, grad_acc, dino)
 
         ## Discriminator Loss
         d_opt = list(d_opt)

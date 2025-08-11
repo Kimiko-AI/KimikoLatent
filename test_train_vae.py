@@ -138,7 +138,6 @@ if __name__ == "__main__":
     vae.get_last_layer = lambda: vae.decoder.conv_out.weight
     vae.compile()
     trainer_module = LatentTrainer(
-        transform = transform,
         vae=vae,
         recon_loss=ReconLoss(
             loss_type=LOSS_TYPE,
