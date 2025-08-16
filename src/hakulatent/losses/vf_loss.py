@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import timm
 
 class VFLoss(nn.Module):
-    def __init__(self, df=384, m1=0.5, m2=0.25, eps=1e-6,
+    def __init__(self, df=1024, m1=0.5, m2=0.25, eps=1e-6,
                  dinov2_name='vit_small_patch14_dinov2.lvd142m'):
         """
         df : foundation model feature dimension
@@ -21,16 +21,20 @@ class VFLoss(nn.Module):
         self.proj = None  # lazy init projection (1x1 conv)
 
         # Load DINOv2 backbone
-        self.dinov2 = timm.create_model(
-            dinov2_name, pretrained=True, num_classes=0, global_pool=''
-        )
+        self.dinov2 = model = torch.hub.load(
+        repo_or_dir='dinov3',
+        model='dinov3_convnext_base',
+        source="local" ,
+        weights = '/content/dinov3_convnext_base_pretrain_lvd1689m-801f2ba9.pth'
+)
         self.dinov2.eval()
         for p in self.dinov2.parameters():
             p.requires_grad_(False)
-
-    def _init_proj(self, dz):
         self.proj = nn.Conv2d(dz, self.df, kernel_size=1, bias=False)
         nn.init.kaiming_normal_(self.proj.weight, nonlinearity='linear')
+
+
+
 
     @torch.no_grad()
     def get_dinov2_features(self, x):
@@ -38,7 +42,8 @@ class VFLoss(nn.Module):
         Extract final spatial patch features from DINOv2.
         Returns [B, df, H_f, W_f].
         """
-        feats = self.dinov2.get_intermediate_layers(x, n=1, reshape=True)[0]
+        feats = self.dinov2.forward_features(x)
+        feats = feats.view(feats.size(0), 16, 16, 1024)
         return feats
 
     def forward(self, z, img):
@@ -51,10 +56,6 @@ class VFLoss(nn.Module):
         # Get foundation features
         f = self.get_dinov2_features(img)  # [B, df, Hf, Wf]
         _, C_f, Hf, Wf = f.shape
-
-        # Create projection if needed
-        if self.proj is None or self.proj.in_channels != C_z:
-            self._init_proj(C_z)
 
         # Project z to df channels
         z_proj = self.proj(z)  # (B, df, H, W)

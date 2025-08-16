@@ -7,5 +7,7 @@ matplotlib
 tqdm
 pillow
 lpips
+toml
+PyWavelets
 git+https://github.com/KohakuBlueleaf/AnySchedule
 git+https://github.com/sypsyp97/convnext_perceptual_loss

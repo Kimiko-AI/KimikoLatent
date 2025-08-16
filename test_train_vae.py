@@ -163,6 +163,18 @@ if __name__ == "__main__":
         adv_loss=AdvLoss(start_iter=ADV_START_ITER, disc_loss="vanilla", n_layers=4),
         img_deprocess=deprocess,
         log_interval=100,
+        transform_prob=0.5,
+        latent_transform=LatentTransformCompose(
+            RandomAffineTransform(
+                rotate_range=(-180, 180),
+                scale_range=(0.8, 1.2),
+                shear_range=((-10, 10), (-5, 5)),
+                translate_range=(0.1, 0.1),
+                method="random",
+            ),  # Thanks AmericanPresidentJimmyCarter
+            BlendingTransform([0.1, 0.4], method="random"),
+        ),
+
         loss_weights={
             "recon": 1,
             "adv": 0.25,
