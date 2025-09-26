@@ -2,9 +2,38 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import timm
+class ResBlock(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Conv2d(dim, dim, kernel_size=1, bias=False),
+            nn.BatchNorm2d(dim),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(dim, dim, kernel_size=1, bias=False),
+            nn.BatchNorm2d(dim)
+        )
+
+    def forward(self, x):
+        return x + self.block(x)
+
+
+
+class ProjResNet(nn.Module):
+    def __init__(self, in_ch, dim, depth=4):
+        super().__init__()
+        layers = []
+        # input projection to dim
+        layers.append(nn.Conv2d(in_ch, dim, kernel_size=1, bias=False))
+        # stack residual blocks
+        for _ in range(depth):
+            layers.append(ResBlock(dim))
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.net(x)
 
 class VFLoss(nn.Module):
-    def __init__(self, df=1024, m1=0.5, m2=0.25, eps=1e-6,
+    def __init__(self, df=1024, m1= 0, m2=0, eps=1e-6,
                  dinov2_name='vit_small_patch14_dinov2.lvd142m'):
         """
         df : foundation model feature dimension
@@ -23,15 +52,17 @@ class VFLoss(nn.Module):
         # Load DINOv2 backbone
         self.dinov2 = model = torch.hub.load(
         repo_or_dir='dinov3',
-        model='dinov3_convnext_base',
+        model='dinov3_vitl16',
         source="local" ,
-        weights = '/content/dinov3_convnext_base_pretrain_lvd1689m-801f2ba9.pth'
+        weights = '/content/dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth'
 )
         self.dinov2.eval()
         for p in self.dinov2.parameters():
             p.requires_grad_(False)
-        self.proj = nn.Conv2d(dz, self.df, kernel_size=1, bias=False)
-        nn.init.kaiming_normal_(self.proj.weight, nonlinearity='linear')
+        self.proj = nn.Sequential(
+            nn.Conv2d(512, 1024, kernel_size=1, bias=False),
+            *[ResBlock(self.df) for _ in range(4)]
+        )
 
 
 
@@ -43,8 +74,9 @@ class VFLoss(nn.Module):
         Returns [B, df, H_f, W_f].
         """
         feats = self.dinov2.forward_features(x)
+        feats, cls = feats["x_norm_patchtokens"], feats["x_norm_clstoken"]
         feats = feats.view(feats.size(0), 16, 16, 1024)
-        return feats
+        return feats, cls
 
     def forward(self, z, img):
         """
@@ -54,17 +86,11 @@ class VFLoss(nn.Module):
         B, C_z, H, W = z.shape
 
         # Get foundation features
-        f = self.get_dinov2_features(img)  # [B, df, Hf, Wf]
+        f, cls = self.get_dinov2_features(img)  # [B, df, Hf, Wf]
         _, C_f, Hf, Wf = f.shape
 
         # Project z to df channels
         z_proj = self.proj(z)  # (B, df, H, W)
-
-        # Match spatial resolution
-        if (Hf, Wf) != (H, W):
-            f = F.interpolate(f, size=(H, W), mode='bilinear', align_corners=False)
-
-        assert f.shape[1] == self.df, "Foundation feature dim must match df"
 
         # Flatten spatial dims
         N = H * W
@@ -74,7 +100,10 @@ class VFLoss(nn.Module):
         # Normalize
         z_norm = F.normalize(z_flat, dim=1, eps=self.eps)
         f_norm = F.normalize(f_flat, dim=1, eps=self.eps)
+        z_norm_pooled = z_norm.mean(dim=2)
 
+        cos_sim_cls = (z_norm_pooled * cls).sum(dim=1)  # (B, N)
+        Lmcos_cls = F.relu(1.0- cos_sim_cls).mean()
         # --- Lmcos ---
         cos_sim = (z_norm * f_norm).sum(dim=1)  # (B, N)
         Lmcos = F.relu(1.0 - self.m1 - cos_sim).mean()

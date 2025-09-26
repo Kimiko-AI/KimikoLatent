@@ -40,10 +40,10 @@ else:
 torch.set_float32_matmul_precision('medium' )
 from torchvision.transforms import InterpolationMode
 
-BASE_MODEL = "diffusers/FLUX.1-vae"
+BASE_MODEL = "Shio-Koube/REPA-E-INVAE-diffusers"
 SUB_FOLDER = None
 EPOCHS = 2
-BATCH_SIZE = 4
+BATCH_SIZE = 8
 GRAD_ACC = 4
 GRAD_CKPT = True
 TRAIN_DEC_ONLY = False
@@ -53,7 +53,7 @@ LPIPS_NET = "vgg"
 USE_CONVNEXT = True
 ADV_START_ITER = 0
 
-NUM_WORKERS = 8
+NUM_WORKERS = 2
 SIZE =384
 LR = 1e-4
 DLR = 1e-4
@@ -160,27 +160,15 @@ if __name__ == "__main__":
             beta=0.25,
             use_kepler_loss=False,
         ),
-        adv_loss=AdvLoss(start_iter=ADV_START_ITER, disc_loss="vanilla", n_layers=4),
+        #adv_loss=AdvLoss(start_iter=ADV_START_ITER, disc_loss="vanilla", n_layers=4),
         img_deprocess=deprocess,
         log_interval=100,
-        transform_prob=0.5,
-        latent_transform=LatentTransformCompose(
-            RandomAffineTransform(
-                rotate_range=(-180, 180),
-                scale_range=(0.8, 1.2),
-                shear_range=((-10, 10), (-5, 5)),
-                translate_range=(0.1, 0.1),
-                method="random",
-            ),  # Thanks AmericanPresidentJimmyCarter
-            BlendingTransform([0.1, 0.4], method="random"),
-        ),
-
         loss_weights={
             "recon": 1,
             "adv": 0.25,
             "kl": 0.00001,
             "reg": 0,
-            "cycle": 0.25,
+            "cycle": 0,
 
         },
         name="EQ-SDXL-VAE-random-affine",
@@ -201,15 +189,15 @@ if __name__ == "__main__":
     )
 
     logger = WandbLogger(
-        project="HakuLatent",
-        name="EQ-VAE-ch16-randomaffine",
+        project="The-Final-VAE",
+        name="Dinov3-VAE",
         # offline=True
     )
     trainer = pl.Trainer(
         logger=logger,
         devices=1,
         max_epochs=EPOCHS,
-        precision="32",
+        precision="16-mixed",
         callbacks=[
             ModelCheckpoint(every_n_train_steps=500),
             ModelCheckpoint(every_n_epochs = 1, save_on_train_epoch_end = True),
