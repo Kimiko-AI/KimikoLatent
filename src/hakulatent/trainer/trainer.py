@@ -166,10 +166,6 @@ class LatentTrainer(BaseTrainer):
         if lycoris_model is not None:
             vae.requires_grad_(False).eval()
         self.vae = vae
-        self.encoder_features = {}
-        def hook_fn(module, input, output):
-            self.encoder_features["pre_conv_out"] = input[0]
-        self.hook_handle = self.vae.encoder.conv_out.register_forward_hook(hook_fn)
         self.lycoris_model = lycoris_model
         self.vf_loss = VFLoss()
         self.img_deprocess = img_deprocess or (lambda x: x)
@@ -279,8 +275,7 @@ class LatentTrainer(BaseTrainer):
 
     def recon_step(self, x, x_rec, latent, dist, g_opt, g_sch, batch_idx, grad_acc, imags):
         recon_loss = self.recon_loss(x, x_rec)
-        feats = self.encoder_features.get("pre_conv_out")
-        vf_loss = self.vf_loss(feats, imags)
+        vf_loss = self.vf_loss(latent, imags)
         # --- Cycle loss ---
         cycle_loss = torch.tensor(0.0, device=x.device)
         if self.cycle_loss_weight > 0:
