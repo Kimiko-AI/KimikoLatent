@@ -216,7 +216,7 @@ if __name__ == "__main__":
     )
     trainer = pl.Trainer(
         logger=logger,
-        devices=1,
+        devices="auto",
         max_epochs=EPOCHS,
         precision="bf16-mixed",
         callbacks=[
