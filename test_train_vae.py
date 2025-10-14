@@ -17,7 +17,7 @@ if __name__ == "__main__":
         ToTensor,
         Lambda,
     )
-    from diffusers import AutoencoderKL
+    from autoencoder_kl import AutoencoderKL
     from convnext_perceptual_loss import ConvNextType
 
     from src.hl_dataset.imagenet import ImageNetDataset
@@ -40,8 +40,8 @@ else:
 torch.set_float32_matmul_precision('medium' )
 from torchvision.transforms import InterpolationMode
 
-BASE_MODEL = "Shio-Koube/REPA-E-INVAE-diffusers"
-SUB_FOLDER = None
+BASE_MODEL = "zhang0jhon/flux_wavelet_v2_sc"
+SUB_FOLDER = "vae"
 EPOCHS = 2
 BATCH_SIZE = 8
 GRAD_ACC = 4
@@ -54,7 +54,7 @@ USE_CONVNEXT = True
 ADV_START_ITER = 0
 
 NUM_WORKERS = 2
-SIZE =384
+SIZE = 256
 LR = 1e-4
 DLR = 1e-4
 
