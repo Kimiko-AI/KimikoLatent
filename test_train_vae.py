@@ -38,24 +38,25 @@ else:
     # This if-else can speedup multi-worker dataloader in windows
     print("Subprocess Starting:", __name__)
 torch.set_float32_matmul_precision('medium' )
+import torch.nn as nn
 from torchvision.transforms import InterpolationMode
 
 BASE_MODEL = "zhang0jhon/flux_wavelet_v2_sc"
 SUB_FOLDER = "vae"
-EPOCHS = 2
-BATCH_SIZE = 8
+EPOCHS = 10
+BATCH_SIZE = 24
 GRAD_ACC = 4
 GRAD_CKPT = True
-TRAIN_DEC_ONLY = False
+TRAIN_DEC_ONLY = True
 
 LOSS_TYPE = "huber"
 LPIPS_NET = "vgg"
-USE_CONVNEXT = True
+USE_CONVNEXT = False
 ADV_START_ITER = 0
 
 NUM_WORKERS = 2
 SIZE = 256
-LR = 1e-4
+LR = 3e-4
 DLR = 1e-4
 
 NEW_LATENT_DIM = None
@@ -130,7 +131,27 @@ if __name__ == "__main__":
 
     if TRAIN_DEC_ONLY:
         vae.requires_grad_(False)
-        vae.decoder.requires_grad_(True)
+        vae.decoder.up_blocks.requires_grad_(True)
+        for name, module in vae.named_modules():
+            if "decoder.up_blocks" in name and "upsamplers" in name:
+                # 2b. Reinitialize based on layer type
+                if isinstance(module, nn.Conv2d):
+                    nn.init.xavier_uniform_(module.weight, gain=1.0)
+                    if module.bias is not None:
+                        nn.init.zeros_(module.bias)
+
+                elif isinstance(module, nn.ConvTranspose2d):
+                    nn.init.kaiming_normal_(module.weight, mode="fan_out", nonlinearity="relu")
+                    if module.bias is not None:
+                        nn.init.zeros_(module.bias)
+
+                elif isinstance(module, nn.Linear):
+                    nn.init.xavier_uniform_(module.weight)
+                    if module.bias is not None:
+                        nn.init.zeros_(module.bias)
+    for name, param in vae.named_parameters():
+        if param.requires_grad:
+            print(name, param.shape)
 
     vae.get_last_layer = lambda: vae.decoder.conv_out.weight
     vae.compile()
@@ -182,7 +203,7 @@ if __name__ == "__main__":
                 "value": 1.0,
                 "min_value": 0.1,
                 "mode": "cosine",
-                "warmup": 0,
+                "warmup": 1000,
             }
         },
         grad_acc=GRAD_ACC,
@@ -190,14 +211,14 @@ if __name__ == "__main__":
 
     logger = WandbLogger(
         project="The-Final-VAE",
-        name="Dinov3-VAE",
+        name="Decoder_tune",
         # offline=True
     )
     trainer = pl.Trainer(
         logger=logger,
         devices=1,
         max_epochs=EPOCHS,
-        precision="16-mixed",
+        precision="bf16-mixed",
         callbacks=[
             ModelCheckpoint(every_n_train_steps=500),
             ModelCheckpoint(every_n_epochs = 1, save_on_train_epoch_end = True),

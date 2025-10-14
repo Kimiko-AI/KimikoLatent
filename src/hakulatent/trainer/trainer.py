@@ -20,7 +20,7 @@ from ..utils.latent import pca_to_rgb
 from ..transform import LatentTransformBase
 from ..losses.adversarial import AdvLoss
 from ..losses.wavelet_loss import SWTLoss
-from ..losses.vf_loss import VFLoss
+#from ..losses.vf_loss import VFLoss
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -107,7 +107,7 @@ class LatentTrainer(BaseTrainer):
 
     def __init__(
             self,
-            vae: AutoencoderKL | None = None,
+            vae,
             vae_compile: bool = False,
             lycoris_model: nn.Module | None = None,
             recon_loss: nn.Module = nn.MSELoss(),
@@ -167,7 +167,7 @@ class LatentTrainer(BaseTrainer):
             vae.requires_grad_(False).eval()
         self.vae = vae
         self.lycoris_model = lycoris_model
-        self.vf_loss = VFLoss()
+        #self.vf_loss = VFLoss()
         self.img_deprocess = img_deprocess or (lambda x: x)
         self.transform = latent_transform
         self.transform_prob = transform_prob
@@ -275,7 +275,7 @@ class LatentTrainer(BaseTrainer):
 
     def recon_step(self, x, x_rec, latent, dist, g_opt, g_sch, batch_idx, grad_acc, imags):
         recon_loss = self.recon_loss(x, x_rec)
-        vf_loss = self.vf_loss(latent, imags)
+        #vf_loss = self.vf_loss(latent, imags)
         # --- Cycle loss ---
         cycle_loss = torch.tensor(0.0, device=x.device)
         if self.cycle_loss_weight > 0:
@@ -293,7 +293,7 @@ class LatentTrainer(BaseTrainer):
                 + kl_loss * self.kl_loss_weight
                 + reg_loss * self.reg_loss_weight
                 + cycle_loss * self.cycle_loss_weight
-                + swt + vf_loss
+                + swt * 0.1
         )
         adv_loss = torch.tensor(0.0, device=x.device)
         if (
@@ -324,7 +324,7 @@ class LatentTrainer(BaseTrainer):
         )
 
         self.log(
-            "train/kl_loss", vf_loss.item(), on_step=True, prog_bar=True, logger=True
+            "train/kl_loss", kl_loss.item(), on_step=True, prog_bar=True, logger=True
         )
         self.log("train/cycle_loss", cycle_loss.item(), on_step=True, prog_bar=True, logger=True)
         self.log("train/swt_loss", swt.item(), on_step=True, prog_bar=True, logger=True)

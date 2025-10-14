@@ -16,8 +16,132 @@ from diffusers.models.unets.unet_2d_blocks import (
     get_down_block,
     get_up_block,
 )
-
+from diffusers.models.resnet import ResnetBlock2D, ResnetBlockCondNorm2D, Upsample2D
+from diffusers.models.normalization import RMSNorm
 import torch.nn.functional as F
+
+
+class ResUpsample2D(nn.Module):
+    def __init__(
+            self,
+            channels: int,
+            out_channels: Optional[int] = None,
+            use_pixelshuffle: bool = True,  # add flag
+            kernel_size: int = 3,
+            padding: int = 1,
+            bias: bool = True,
+    ):
+        super().__init__()
+        self.channels = channels
+        self.out_channels = out_channels or channels
+        self.use_pixelshuffle = use_pixelshuffle
+
+        if use_pixelshuffle:
+            # matches FastVSR’s “Pixel Shuffle + Copy + Conv out”
+            self.expand_conv = nn.Conv2d(
+                self.channels, 4 * self.out_channels, kernel_size=kernel_size, padding=padding, bias=bias
+            )
+            self.pixel_shuffle = nn.PixelShuffle(2)
+            # “Copy” operation: can duplicate channels or project via 1×1 conv
+            self.copy_conv = nn.Conv2d(self.out_channels, 4 * self.out_channels, kernel_size=1, bias=bias)
+            self.final_conv = nn.Conv2d(4 * self.out_channels, self.out_channels, kernel_size=3, padding=1, bias=bias)
+        else:
+            # fallback: normal nearest + conv
+            self.conv = nn.Conv2d(channels, out_channels or channels, kernel_size=kernel_size, padding=padding,
+                                  bias=bias)
+
+        self._init_weights()
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.xavier_uniform_(m.weight, gain=1.0)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0.0)
+
+    def forward(self, x):
+        if self.use_pixelshuffle:
+            x = self.expand_conv(x)  # (B, 4C, H, W)
+            x = self.pixel_shuffle(x)  # (B, C, 2H, 2W)
+            x = self.copy_conv(x)  # (B, 4C, 2H, 2W)
+            x = self.final_conv(x)  # (B, C, 2H, 2W)
+            return x
+        else:
+            return F.interpolate(x, scale_factor=2, mode='nearest')
+
+
+class UpDecoderBlock2D(nn.Module):
+    def __init__(
+            self,
+            in_channels: int,
+            out_channels: int,
+            resolution_idx: Optional[int] = None,
+            dropout: float = 0.0,
+            num_layers: int = 1,
+            resnet_eps: float = 1e-6,
+            resnet_time_scale_shift: str = "default",  # default, spatial
+            resnet_act_fn: str = "swish",
+            resnet_groups: int = 32,
+            resnet_pre_norm: bool = True,
+            output_scale_factor: float = 1.0,
+            add_upsample: bool = True,
+            temb_channels: Optional[int] = None,
+    ):
+        super().__init__()
+        resnets = []
+
+        for i in range(num_layers):
+            input_channels = in_channels if i == 0 else out_channels
+
+            if resnet_time_scale_shift == "spatial":
+                resnets.append(
+                    ResnetBlockCondNorm2D(
+                        in_channels=input_channels,
+                        out_channels=out_channels,
+                        temb_channels=temb_channels,
+                        eps=resnet_eps,
+                        groups=resnet_groups,
+                        dropout=dropout,
+                        time_embedding_norm="spatial",
+                        non_linearity=resnet_act_fn,
+                        output_scale_factor=output_scale_factor,
+                    )
+                )
+            else:
+                resnets.append(
+                    ResnetBlock2D(
+                        in_channels=input_channels,
+                        out_channels=out_channels,
+                        temb_channels=temb_channels,
+                        eps=resnet_eps,
+                        groups=resnet_groups,
+                        dropout=dropout,
+                        time_embedding_norm=resnet_time_scale_shift,
+                        non_linearity=resnet_act_fn,
+                        output_scale_factor=output_scale_factor,
+                        pre_norm=resnet_pre_norm,
+                    )
+                )
+
+        self.resnets = nn.ModuleList(resnets)
+
+        if add_upsample:
+            self.upsamplers = nn.ModuleList(
+                [ResUpsample2D(out_channels, use_pixelshuffle=True, out_channels=out_channels)])
+        else:
+            self.upsamplers = None
+
+        self.resolution_idx = resolution_idx
+
+    def forward(self, hidden_states: torch.Tensor, temb: Optional[torch.Tensor] = None) -> torch.Tensor:
+        for resnet in self.resnets:
+            hidden_states = resnet(hidden_states, temb=temb)
+
+        if self.upsamplers is not None:
+            for upsampler in self.upsamplers:
+                hidden_states = upsampler(hidden_states)
+
+        return hidden_states
 
 
 @dataclass
@@ -31,7 +155,7 @@ class EncoderOutput(BaseOutput):
     """
 
     latent: torch.Tensor
-    
+
 
 @dataclass
 class DecoderOutput(BaseOutput):
@@ -73,17 +197,17 @@ class Encoder(nn.Module):
     """
 
     def __init__(
-        self,
-        in_channels: int = 3,
-        out_channels: int = 3,
-        down_block_types: Tuple[str, ...] = ("DownEncoderBlock2D",),
-        block_out_channels: Tuple[int, ...] = (64,),
-        layers_per_block: int = 2,
-        norm_num_groups: int = 32,
-        act_fn: str = "silu",
-        double_z: bool = True,
-        mid_block_add_attention=True,
-        stride=1,
+            self,
+            in_channels: int = 3,
+            out_channels: int = 3,
+            down_block_types: Tuple[str, ...] = ("DownEncoderBlock2D",),
+            block_out_channels: Tuple[int, ...] = (64,),
+            layers_per_block: int = 2,
+            norm_num_groups: int = 32,
+            act_fn: str = "silu",
+            double_z: bool = True,
+            mid_block_add_attention=True,
+            stride=1,
     ):
         super().__init__()
         self.layers_per_block = layers_per_block
@@ -212,18 +336,18 @@ class Decoder(nn.Module):
     """
 
     def __init__(
-        self,
-        in_channels: int = 3,
-        out_channels: int = 3,
-        up_block_types: Tuple[str, ...] = ("UpDecoderBlock2D",),
-        block_out_channels: Tuple[int, ...] = (64,),
-        layers_per_block: int = 2,
-        norm_num_groups: int = 32,
-        act_fn: str = "silu",
-        norm_type: str = "group",  # group, spatial
-        mid_block_add_attention=True,
-        stride=1,
-        # partitioned = False,
+            self,
+            in_channels: int = 3,
+            out_channels: int = 3,
+            up_block_types: Tuple[str, ...] = ("UpDecoderBlock2D",),
+            block_out_channels: Tuple[int, ...] = (64,),
+            layers_per_block: int = 2,
+            norm_num_groups: int = 32,
+            act_fn: str = "silu",
+            norm_type: str = "group",  # group, spatial
+            mid_block_add_attention=True,
+            stride=1,
+            # partitioned = False,
     ):
         super().__init__()
         self.layers_per_block = layers_per_block
@@ -264,17 +388,14 @@ class Decoder(nn.Module):
 
             is_final_block = i == len(block_out_channels) - 1
 
-            up_block = get_up_block(
-                up_block_type,
+            up_block = UpDecoderBlock2D(
                 num_layers=self.layers_per_block + 1,
                 in_channels=prev_output_channel,
                 out_channels=output_channel,
-                prev_output_channel=None,
                 add_upsample=not is_final_block,
                 resnet_eps=1e-6,
                 resnet_act_fn=act_fn,
                 resnet_groups=norm_num_groups,
-                attention_head_dim=output_channel,
                 temb_channels=temb_channels,
                 resnet_time_scale_shift=norm_type,
             )
@@ -292,10 +413,10 @@ class Decoder(nn.Module):
         self.gradient_checkpointing = False
 
     def forward(
-        self,
-        sample: torch.Tensor,
-        latent_embeds: Optional[torch.Tensor] = None,
-        partitioned: bool = True,
+            self,
+            sample: torch.Tensor,
+            latent_embeds: Optional[torch.Tensor] = None,
+            partitioned: bool = True,
     ) -> torch.Tensor:
         r"""The forward method of the `Decoder` class."""
 
@@ -349,14 +470,14 @@ class Decoder(nn.Module):
                 sample = up_block(sample, latent_embeds)
 
         # partitioned VAE F16
-        if self.stride > 1 and partitioned: 
+        if self.stride > 1 and partitioned:
             if latent_embeds is None:
                 sample = self.conv_norm_out(sample)
             else:
                 sample = self.conv_norm_out(sample, latent_embeds)
             sample = self.conv_act(sample)
 
-            overlap_size = 1 # because last conv kernel_size = 3
+            overlap_size = 1  # because last conv kernel_size = 3
             res = []
             partitioned_height = sample.shape[2] // self.stride
             partitioned_width = sample.shape[3] // self.stride
@@ -366,44 +487,47 @@ class Decoder(nn.Module):
             #     sample = sample.to(torch.float32)
             #     sample = sample.contiguous()
 
-            assert self.stride == 2 # only support stride = 2 for now
+            assert self.stride == 2  # only support stride = 2 for now
             rows = []
             for i in range(0, sample.shape[2], partitioned_height):
                 row = []
                 for j in range(0, sample.shape[3], partitioned_width):
-                    partition = sample[:,:, max(i - overlap_size, 0) : min(i + partitioned_height + overlap_size, sample.shape[2]), max(j - overlap_size, 0) : min(j + partitioned_width + overlap_size, sample.shape[3])]
-                    
-                    # for stride = 2 
-                    if i==0 and j==0:
-                        partition = F.pad(partition, (1, 0, 1, 0), "constant", 0) 
-                    elif i==0 and j>0:
-                        partition = F.pad(partition, (0, 1, 1, 0), "constant", 0) 
-                    elif i>0 and j==0:
-                        partition = F.pad(partition, (1, 0, 0, 1), "constant", 0) 
-                    elif i>0 and j>0:
-                        partition = F.pad(partition, (0, 1, 0, 1), "constant", 0) 
+                    partition = sample[:, :,
+                                max(i - overlap_size, 0): min(i + partitioned_height + overlap_size, sample.shape[2]),
+                                max(j - overlap_size, 0): min(j + partitioned_width + overlap_size, sample.shape[3])]
+
+                    # for stride = 2
+                    if i == 0 and j == 0:
+                        partition = F.pad(partition, (1, 0, 1, 0), "constant", 0)
+                    elif i == 0 and j > 0:
+                        partition = F.pad(partition, (0, 1, 1, 0), "constant", 0)
+                    elif i > 0 and j == 0:
+                        partition = F.pad(partition, (1, 0, 0, 1), "constant", 0)
+                    elif i > 0 and j > 0:
+                        partition = F.pad(partition, (0, 1, 0, 1), "constant", 0)
 
                     partition = F.interpolate(partition, scale_factor=self.stride, mode='nearest')
                     partition = self.conv_out(partition)
-                    partition = partition[:,:,overlap_size:partitioned_height*2+overlap_size,overlap_size:partitioned_width*2+overlap_size]
+                    partition = partition[:, :, overlap_size:partitioned_height * 2 + overlap_size,
+                                overlap_size:partitioned_width * 2 + overlap_size]
 
                     # # for stride > 2, not tested
                     # if i==0 and j==0:
-                    #     partition = F.pad(partition, (1, 0, 1, 0), "constant", 0) 
+                    #     partition = F.pad(partition, (1, 0, 1, 0), "constant", 0)
                     # elif i==0 and j>0 and j<width-partitioned_width:
-                    #     partition = F.pad(partition, (0, 0, 1, 0), "constant", 0) 
+                    #     partition = F.pad(partition, (0, 0, 1, 0), "constant", 0)
                     # elif i==0 and j==width-partitioned_width:
-                    #     partition = F.pad(partition, (0, 1, 1, 0), "constant", 0) 
+                    #     partition = F.pad(partition, (0, 1, 1, 0), "constant", 0)
                     # elif j==0 and i>0 and i<height-partitioned_height:
-                    #     partition = F.pad(partition, (1, 0, 0, 0), "constant", 0) 
+                    #     partition = F.pad(partition, (1, 0, 0, 0), "constant", 0)
                     # elif j==0 and i==height-partitioned_height:
-                    #     partition = F.pad(partition, (1, 0, 0, 1), "constant", 0) 
+                    #     partition = F.pad(partition, (1, 0, 0, 1), "constant", 0)
                     # elif i==height-partitioned_height and j>0 and j<width-partitioned_width:
-                    #     partition = F.pad(partition, (0, 0, 0, 1), "constant", 0) 
+                    #     partition = F.pad(partition, (0, 0, 0, 1), "constant", 0)
                     # elif i==height-partitioned_height and j==width-partitioned_width:
                     #     partition = F.pad(partition, (0, 1, 0, 1), "constant", 0)
                     # elif j==width-partitioned_width and i>0 and i<height-partitioned_height:
-                    #     partition = F.pad(partition, (0, 1, 0, 0), "constant", 0) 
+                    #     partition = F.pad(partition, (0, 1, 0, 0), "constant", 0)
 
                     # partition = F.interpolate(partition, scale_factor=self.stride, mode='nearest')
                     # partition = self.conv_out(partition)
@@ -414,11 +538,11 @@ class Decoder(nn.Module):
 
             for row in rows:
                 res.append(torch.cat(row, dim=3))
-            
+
             sample = torch.cat(res, dim=2)
 
         # F16 VAE without partition
-        elif self.stride > 1: 
+        elif self.stride > 1:
             if latent_embeds is None:
                 sample = self.conv_norm_out(sample)
             else:
@@ -431,9 +555,9 @@ class Decoder(nn.Module):
 
             sample = self.conv_act(sample)
             sample = self.conv_out(sample)
-        
+
         # F8 VAE
-        else: 
+        else:
             if latent_embeds is None:
                 sample = self.conv_norm_out(sample)
             else:
@@ -456,9 +580,9 @@ class UpSample(nn.Module):
     """
 
     def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
+            self,
+            in_channels: int,
+            out_channels: int,
     ) -> None:
         super().__init__()
         self.in_channels = in_channels
@@ -478,11 +602,11 @@ class MaskConditionEncoder(nn.Module):
     """
 
     def __init__(
-        self,
-        in_ch: int,
-        out_ch: int = 192,
-        res_ch: int = 768,
-        stride: int = 16,
+            self,
+            in_ch: int,
+            out_ch: int = 192,
+            res_ch: int = 768,
+            stride: int = 16,
     ) -> None:
         super().__init__()
 
@@ -549,15 +673,15 @@ class MaskConditionDecoder(nn.Module):
     """
 
     def __init__(
-        self,
-        in_channels: int = 3,
-        out_channels: int = 3,
-        up_block_types: Tuple[str, ...] = ("UpDecoderBlock2D",),
-        block_out_channels: Tuple[int, ...] = (64,),
-        layers_per_block: int = 2,
-        norm_num_groups: int = 32,
-        act_fn: str = "silu",
-        norm_type: str = "group",  # group, spatial
+            self,
+            in_channels: int = 3,
+            out_channels: int = 3,
+            up_block_types: Tuple[str, ...] = ("UpDecoderBlock2D",),
+            block_out_channels: Tuple[int, ...] = (64,),
+            layers_per_block: int = 2,
+            norm_num_groups: int = 32,
+            act_fn: str = "silu",
+            norm_type: str = "group",  # group, spatial
     ):
         super().__init__()
         self.layers_per_block = layers_per_block
@@ -630,11 +754,11 @@ class MaskConditionDecoder(nn.Module):
         self.gradient_checkpointing = False
 
     def forward(
-        self,
-        z: torch.Tensor,
-        image: Optional[torch.Tensor] = None,
-        mask: Optional[torch.Tensor] = None,
-        latent_embeds: Optional[torch.Tensor] = None,
+            self,
+            z: torch.Tensor,
+            image: Optional[torch.Tensor] = None,
+            mask: Optional[torch.Tensor] = None,
+            latent_embeds: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         r"""The forward method of the `MaskConditionDecoder` class."""
         sample = z
@@ -749,14 +873,14 @@ class VectorQuantizer(nn.Module):
     # backwards compatibility we use the buggy version by default, but you can
     # specify legacy=False to fix it.
     def __init__(
-        self,
-        n_e: int,
-        vq_embed_dim: int,
-        beta: float,
-        remap=None,
-        unknown_index: str = "random",
-        sane_index_shape: bool = False,
-        legacy: bool = True,
+            self,
+            n_e: int,
+            vq_embed_dim: int,
+            beta: float,
+            remap=None,
+            unknown_index: str = "random",
+            sane_index_shape: bool = False,
+            legacy: bool = True,
     ):
         super().__init__()
         self.n_e = n_e
@@ -936,12 +1060,12 @@ class EncoderTiny(nn.Module):
     """
 
     def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        num_blocks: Tuple[int, ...],
-        block_out_channels: Tuple[int, ...],
-        act_fn: str,
+            self,
+            in_channels: int,
+            out_channels: int,
+            num_blocks: Tuple[int, ...],
+            block_out_channels: Tuple[int, ...],
+            act_fn: str,
     ):
         super().__init__()
 
@@ -1014,14 +1138,14 @@ class DecoderTiny(nn.Module):
     """
 
     def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        num_blocks: Tuple[int, ...],
-        block_out_channels: Tuple[int, ...],
-        upsampling_scaling_factor: int,
-        act_fn: str,
-        upsample_fn: str,
+            self,
+            in_channels: int,
+            out_channels: int,
+            num_blocks: Tuple[int, ...],
+            block_out_channels: Tuple[int, ...],
+            upsampling_scaling_factor: int,
+            act_fn: str,
+            upsample_fn: str,
     ):
         super().__init__()
 
