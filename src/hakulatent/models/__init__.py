@@ -1,1 +1,1 @@
-from .discriminator import NLayerDiscriminator, HakuNLayerDiscriminator
+from .discriminator import R3GANDiscriminator
