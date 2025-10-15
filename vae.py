@@ -287,7 +287,7 @@ class Decoder(nn.Module):
         else:
             self.conv_norm_out = nn.GroupNorm(num_channels=block_out_channels[0], num_groups=norm_num_groups, eps=1e-6)
         self.conv_act = nn.SiLU()
-        self.conv_out = nn.ConvTranspose2d(block_out_channels[0], out_channels, 7, padding=3, stride=2)
+        self.conv_out = nn.ConvTranspose2d(block_out_channels[0], out_channels, 7, padding=3, stride=2, output_padding = 1)
 
         self.gradient_checkpointing = False
 
