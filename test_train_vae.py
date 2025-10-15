@@ -45,16 +45,16 @@ BASE_MODEL = "zhang0jhon/flux_wavelet_v2_sc"
 SUB_FOLDER = "vae"
 EPOCHS = 10
 BATCH_SIZE = 24
-GRAD_ACC = 4
+GRAD_ACC = 1
 GRAD_CKPT = True
 TRAIN_DEC_ONLY = False
 
 LOSS_TYPE = "huber"
 LPIPS_NET = "vgg"
-USE_CONVNEXT = False
-ADV_START_ITER = 0
+USE_CONVNEXT = True
+ADV_START_ITER = 2000
 
-NUM_WORKERS = 2
+NUM_WORKERS = 8
 SIZE = 256
 LR = 1e-4
 DLR = 1e-4
