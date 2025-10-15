@@ -42,7 +42,7 @@ import torch.nn as nn
 from torchvision.transforms import InterpolationMode
 
 BASE_MODEL = "diffusers/FLUX.1-vae"
-SUB_FOLDER = "vae"
+SUB_FOLDER = None
 EPOCHS = 10
 BATCH_SIZE = 8
 GRAD_ACC = 4
