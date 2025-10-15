@@ -130,15 +130,23 @@ if __name__ == "__main__":
 
 
     if TRAIN_DEC_ONLY:
-        vae.requires_grad_(False)
+        vae.requires_grad_(True)
         vae.decoder.up_blocks.requires_grad_(True)
-        for name, module in vae.named_modules():
-            if "decoder" in name and "conv_out" in name:
-                if isinstance(module, nn.ConvTranspose2d):
-                    module.requires_grad_(True)
-                    nn.init.xavier_uniform_(module.weight, gain=1.0)
-                    if module.bias is not None:
-                        nn.init.zeros_(module.bias)
+    for name, module in vae.named_modules():
+        if "decoder" in name and "conv_out" in name:
+            if isinstance(module, nn.ConvTranspose2d):
+                module.requires_grad_(True)
+                nn.init.xavier_uniform_(module.weight, gain=1.0)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+    vae.decoder.up_blocks.requires_grad_(True)
+    for name, module in vae.named_modules():
+        if "encoder" in name and "conv_in" in name:
+            if isinstance(module, nn.Conv2d):
+                module.requires_grad_(True)
+                nn.init.xavier_uniform_(module.weight, gain=1.0)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
 
 
 

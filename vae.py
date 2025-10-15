@@ -91,8 +91,8 @@ class Encoder(nn.Module):
         self.conv_in = nn.Conv2d(
             in_channels,
             block_out_channels[0],
-            kernel_size=3,
-            stride=stride,
+            kernel_size=7,
+            stride=2,
             padding=1,
         )
 

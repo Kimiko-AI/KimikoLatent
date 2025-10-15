@@ -44,7 +44,7 @@ class ImageNetDataset(data.Dataset):
         train_img = self.train_post(crop) * 2 - 1
         dino_img = self.dino_post(crop) * 2 - 1
 
-        return dino_img, train_img
+        return train_img, train_img
 
     def __len__(self):
         return self.max_len or len(self.dataset)

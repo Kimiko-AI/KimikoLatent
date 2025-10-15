@@ -280,8 +280,10 @@ class LatentTrainer(BaseTrainer):
         cycle_loss = torch.tensor(0.0, device=x.device)
         if self.cycle_loss_weight > 0:
             with torch.no_grad():  # detach to avoid gradient loops on the VAE
-                orgin, a, latent_cycle, c, d = self.basic_step(x_rec)
-            cycle_loss = F.mse_loss(x, latent_cycle)
+                latent_cycle = self.vae.encode(imags).latent_dist.sample()
+                latent_cycle2 = self.vae.encode(x_rec).latent_dist.sample()
+
+            cycle_loss = F.mse_loss(latent_cycle2, latent_cycle)
 
         kl_loss = torch.sum(dist.kl()) / x_rec.numel()
         reg_loss = torch.tensor(0.0, device=x.device)
