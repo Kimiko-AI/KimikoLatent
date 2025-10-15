@@ -24,7 +24,7 @@ class AdvLoss(nn.Module):
         super().__init__()
         self.start_iter = start_iter
         if "n_layers" not in kwargs:
-            kwargs["n_layers"] = 5
+            kwargs["n_layers"] = 4
         self.discriminator = R3GANDiscriminator(**kwargs)
         self.d_loss = hinge_loss if disc_loss == "hinge" else vanilla_loss
 

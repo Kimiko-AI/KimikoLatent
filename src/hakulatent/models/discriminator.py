@@ -67,7 +67,7 @@ class R3GANDiscriminator(nn.Module):
     """
     A PatchGAN-style discriminator built with modern R3GAN blocks.
     """
-    def __init__(self, input_nc=3, ndf=64, n_layers=5, groups=8):
+    def __init__(self, input_nc=3, ndf=64, n_layers=4, groups=8):
         """
         Parameters:
             input_nc (int)  -- the number of channels in input images
@@ -78,7 +78,7 @@ class R3GANDiscriminator(nn.Module):
         super().__init__()
 
         # Initial convolution to map input image to feature space
-        self.initial_conv = nn.Conv2d(input_nc, ndf, kernel_size=3, padding=1)
+        self.initial_conv = nn.Conv2d(input_nc, ndf, kernel_size=7, padding=3, stride=2, bias=True)
 
         blocks = []
         in_feat = ndf
