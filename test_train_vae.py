@@ -44,7 +44,7 @@ from torchvision.transforms import InterpolationMode
 BASE_MODEL = "diffusers/FLUX.1-vae"
 SUB_FOLDER = None
 EPOCHS = 10
-BATCH_SIZE = 8
+BATCH_SIZE = 4
 GRAD_ACC = 4
 GRAD_CKPT = True
 TRAIN_DEC_ONLY = False
