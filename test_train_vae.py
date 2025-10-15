@@ -56,7 +56,7 @@ ADV_START_ITER = 0
 
 NUM_WORKERS = 2
 SIZE = 256
-LR = 3e-4
+LR = 1e-4
 DLR = 1e-4
 
 NEW_LATENT_DIM = None
@@ -181,7 +181,7 @@ if __name__ == "__main__":
             beta=0.25,
             use_kepler_loss=False,
         ),
-        #adv_loss=AdvLoss(start_iter=ADV_START_ITER, disc_loss="vanilla", n_layers=4),
+        adv_loss=AdvLoss(start_iter=ADV_START_ITER, disc_loss="vanilla", n_layers=4),
         img_deprocess=deprocess,
         log_interval=100,
         loss_weights={

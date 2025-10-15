@@ -293,7 +293,7 @@ class LatentTrainer(BaseTrainer):
                 + kl_loss * self.kl_loss_weight
                 + reg_loss * self.reg_loss_weight
                 + cycle_loss * self.cycle_loss_weight
-                + swt * 0.1
+                + swt * 0
         )
         adv_loss = torch.tensor(0.0, device=x.device)
         if (
