@@ -44,10 +44,10 @@ from torchvision.transforms import InterpolationMode
 BASE_MODEL = "zhang0jhon/flux_wavelet_v2_sc"
 SUB_FOLDER = "vae"
 EPOCHS = 10
-BATCH_SIZE = 4
+BATCH_SIZE = 8
 GRAD_ACC = 4
 GRAD_CKPT = True
-TRAIN_DEC_ONLY = False
+TRAIN_DEC_ONLY = True
 
 LOSS_TYPE = "huber"
 LPIPS_NET = "vgg"
@@ -132,23 +132,7 @@ if __name__ == "__main__":
     if TRAIN_DEC_ONLY:
         vae.requires_grad_(False)
         vae.decoder.up_blocks.requires_grad_(True)
-        for name, module in vae.named_modules():
-            if "decoder.up_blocks" in name and "upsamplers" in name:
-                # 2b. Reinitialize based on layer type
-                if isinstance(module, nn.Conv2d):
-                    nn.init.xavier_uniform_(module.weight, gain=1.0)
-                    if module.bias is not None:
-                        nn.init.zeros_(module.bias)
 
-                elif isinstance(module, nn.ConvTranspose2d):
-                    nn.init.kaiming_normal_(module.weight, mode="fan_out", nonlinearity="relu")
-                    if module.bias is not None:
-                        nn.init.zeros_(module.bias)
-
-                elif isinstance(module, nn.Linear):
-                    nn.init.xavier_uniform_(module.weight)
-                    if module.bias is not None:
-                        nn.init.zeros_(module.bias)
     for name, param in vae.named_parameters():
         if param.requires_grad:
             print(name, param.shape)

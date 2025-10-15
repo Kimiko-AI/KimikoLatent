@@ -274,7 +274,7 @@ class LatentTrainer(BaseTrainer):
         return orgin, x, x_rec, latent, dist
 
     def recon_step(self, x, x_rec, latent, dist, g_opt, g_sch, batch_idx, grad_acc, imags):
-        recon_loss = self.recon_loss(x, x_rec)
+        recon_loss = self.recon_loss(imags, x_rec)
         #vf_loss = self.vf_loss(latent, imags)
         # --- Cycle loss ---
         cycle_loss = torch.tensor(0.0, device=x.device)
@@ -285,7 +285,7 @@ class LatentTrainer(BaseTrainer):
 
         kl_loss = torch.sum(dist.kl()) / x_rec.numel()
         reg_loss = torch.tensor(0.0, device=x.device)
-        swt = self.swt(x_rec, x)
+        swt = self.swt(x_rec, imags)
         if self.latent_loss is not None:
             reg_loss += self.latent_loss(latent)
         loss = (
