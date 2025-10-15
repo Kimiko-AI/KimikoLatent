@@ -93,7 +93,7 @@ class Encoder(nn.Module):
             block_out_channels[0],
             kernel_size=7,
             stride=2,
-            padding=1,
+            padding=3,
         )
 
         self.down_blocks = nn.ModuleList([])
