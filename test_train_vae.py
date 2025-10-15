@@ -127,7 +127,7 @@ if __name__ == "__main__":
             layers_per_block=2,
         )
         vae.save_pretrained("./models/Kohaku-VAE")
-        vae.compile()
+
 
     if TRAIN_DEC_ONLY:
         vae.requires_grad_(False)
