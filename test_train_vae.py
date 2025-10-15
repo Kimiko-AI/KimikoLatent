@@ -44,10 +44,10 @@ from torchvision.transforms import InterpolationMode
 BASE_MODEL = "diffusers/FLUX.1-vae"
 SUB_FOLDER = None
 EPOCHS = 10
-BATCH_SIZE = 4
+BATCH_SIZE = 6
 GRAD_ACC = 4
 GRAD_CKPT = True
-TRAIN_DEC_ONLY = False
+TRAIN_DEC_ONLY = True
 
 LOSS_TYPE = "huber"
 LPIPS_NET = "vgg"
@@ -132,6 +132,8 @@ if __name__ == "__main__":
     if TRAIN_DEC_ONLY:
         vae.requires_grad_(True)
         vae.decoder.up_blocks.requires_grad_(True)
+        vae.encoder.down_blocks[0].requires_grad_(True)
+        vae.encoder.down_blocks[1].requires_grad_(True)
     for name, module in vae.named_modules():
         if "decoder" in name and "conv_out" in name:
             if isinstance(module, nn.ConvTranspose2d):
