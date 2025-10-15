@@ -44,8 +44,8 @@ from torchvision.transforms import InterpolationMode
 BASE_MODEL = "zhang0jhon/flux_wavelet_v2_sc"
 SUB_FOLDER = "vae"
 EPOCHS = 10
-BATCH_SIZE = 8
-GRAD_ACC = 1
+BATCH_SIZE = 4
+GRAD_ACC = 4
 GRAD_CKPT = True
 TRAIN_DEC_ONLY = False
 
