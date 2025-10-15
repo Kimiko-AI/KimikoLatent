@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..models.discriminator import R3GANDiscriminator
+from ..models.discriminator import HakuNLayerDiscriminator
 
 
 def hinge_loss(logits_real, logits_fake):
@@ -25,7 +25,7 @@ class AdvLoss(nn.Module):
         self.start_iter = start_iter
         if "n_layers" not in kwargs:
             kwargs["n_layers"] = 4
-        self.discriminator = R3GANDiscriminator(**kwargs)
+        self.discriminator = HakuNLayerDiscriminator(**kwargs)
         self.d_loss = hinge_loss if disc_loss == "hinge" else vanilla_loss
 
     def calc_adaptive_weight(self, rec_loss, g_loss, last_layer: nn.Module):

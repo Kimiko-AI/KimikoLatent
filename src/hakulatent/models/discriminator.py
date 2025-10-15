@@ -1,128 +1,245 @@
+"""
+Copy and Modified from CompVis/taming-transformers
+Which is under MIT License
+"""
+
+import functools
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class R3GANDiscBlock(nn.Module):
-    """
-    A residual discriminator block based on R3GAN principles, now with variable depth.
-    Uses AvgPool for downsampling, GroupNorm, and SiLU activation.
 
-    Args:
-        in_channels (int): Number of input channels.
-        out_channels (int): Number of output channels.
-        groups (int): Number of groups for GroupNorm.
-        num_conv_blocks (int): The number of conv->norm->act blocks in the main path.
-    """
+class ActNorm(nn.Module):
+    initialized: torch.Tensor
 
-    def __init__(self, in_channels, out_channels, groups=8, num_conv_blocks=4):
+    def __init__(
+        self, num_features, logdet=False, affine=True, allow_reverse_init=False
+    ):
+        assert affine
         super().__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
+        self.logdet = logdet
+        self.loc = nn.Parameter(torch.zeros(1, num_features, 1, 1))
+        self.scale = nn.Parameter(torch.ones(1, num_features, 1, 1))
+        self.allow_reverse_init = allow_reverse_init
 
-        # The number of conv blocks must be at least 1
-        if num_conv_blocks < 1:
-            raise ValueError("num_conv_blocks must be at least 1.")
+        self.register_buffer("initialized", torch.tensor(0, dtype=torch.uint8))
 
-        # Use a 1x1 conv for the skip connection if channels change
-        if in_channels != out_channels:
-            self.skip = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+    def initialize(self, input):
+        with torch.no_grad():
+            flatten = input.permute(1, 0, 2, 3).contiguous().view(input.shape[1], -1)
+            mean = (
+                flatten.mean(1)
+                .unsqueeze(1)
+                .unsqueeze(2)
+                .unsqueeze(3)
+                .permute(1, 0, 2, 3)
+            )
+            std = (
+                flatten.std(1)
+                .unsqueeze(1)
+                .unsqueeze(2)
+                .unsqueeze(3)
+                .permute(1, 0, 2, 3)
+            )
+
+            self.loc.data.copy_(-mean)
+            self.scale.data.copy_(1 / (std + 1e-6))
+
+    def forward(self, input, reverse=False):
+        if reverse:
+            return self.reverse(input)
+        if len(input.shape) == 2:
+            input = input[:, :, None, None]
+            squeeze = True
         else:
-            self.skip = nn.Identity()
+            squeeze = False
 
-        # Dynamically build the main path
-        layers = []
-        # First convolution block handles the transition from in_channels to out_channels
-        layers.extend([
-            nn.GroupNorm(num_groups=min(groups, in_channels), num_channels=in_channels),
-            nn.SiLU(),
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
-        ])
+        _, _, height, width = input.shape
 
-        # Add subsequent convolution blocks, which all operate on out_channels
-        for _ in range(num_conv_blocks - 1):
-            layers.extend([
-                nn.GroupNorm(num_groups=groups, num_channels=out_channels),
-                nn.SiLU(),
-                nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
-            ])
+        if self.training and self.initialized.item() == 0:
+            self.initialize(input)
+            self.initialized.fill_(1)
 
-        self.main = nn.Sequential(*layers)
+        h = self.scale * (input + self.loc)
 
-        # R3GAN principle: Separate downsampling from convolution
-        self.downsample = nn.AvgPool2d(2, stride=2)
+        if squeeze:
+            h = h.squeeze(-1).squeeze(-1)
 
-    def forward(self, x):
-        # Main path
-        h = self.main(x)
-        # Skip connection path
-        x_skip = self.skip(x)
+        if self.logdet:
+            log_abs = torch.log(torch.abs(self.scale))
+            logdet = height * width * torch.sum(log_abs)
+            logdet = logdet * torch.ones(input.shape[0]).to(input)
+            return h, logdet
 
-        # Add residual and then downsample.
-        # The residual connection skips over all internal conv blocks.
-        out = self.downsample(x_skip + h)
-        return out
+        return h
+
+    def reverse(self, output):
+        if self.training and self.initialized.item() == 0:
+            if not self.allow_reverse_init:
+                raise RuntimeError(
+                    "Initializing ActNorm in reverse direction is "
+                    "disabled by default. Use allow_reverse_init=True to enable."
+                )
+            else:
+                self.initialize(output)
+                self.initialized.fill_(1)
+
+        if len(output.shape) == 2:
+            output = output[:, :, None, None]
+            squeeze = True
+        else:
+            squeeze = False
+
+        h = output / self.scale - self.loc
+
+        if squeeze:
+            h = h.squeeze(-1).squeeze(-1)
+        return h
 
 
-class R3GANDiscriminator(nn.Module):
+def weights_init(m):
+    classname = m.__class__.__name__
+    if classname.find("Conv") != -1:
+        nn.init.normal_(m.weight.data, 0.0, 0.02)
+    elif classname.find("BatchNorm") != -1:
+        nn.init.normal_(m.weight.data, 1.0, 0.02)
+        nn.init.constant_(m.bias.data, 0)
+
+
+class NLayerDiscriminator(nn.Module):
+    """Defines a PatchGAN discriminator as in Pix2Pix
+    --> see https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/blob/master/models/networks.py
     """
-    A PatchGAN-style discriminator built with modern R3GAN blocks.
-    """
-    def __init__(self, input_nc=3, ndf=64, n_layers=4, groups=8):
-        """
+
+    def __init__(self, input_nc=3, ndf=64, n_layers=3, use_actnorm=False):
+        """Construct a PatchGAN discriminator
         Parameters:
             input_nc (int)  -- the number of channels in input images
-            ndf (int)       -- the number of filters in the base conv layer
-            n_layers (int)  -- the number of downsampling blocks
-            groups (int)    -- the number of groups for GroupNorm
+            ndf (int)       -- the number of filters in the last conv layer
+            n_layers (int)  -- the number of conv layers in the discriminator
+            norm_layer      -- normalization layer
         """
-        super().__init__()
+        super(NLayerDiscriminator, self).__init__()
+        if not use_actnorm:
+            norm_layer = nn.BatchNorm2d
+        else:
+            norm_layer = ActNorm
+        if (
+            type(norm_layer) == functools.partial
+        ):  # no need to use bias as BatchNorm2d has affine parameters
+            use_bias = norm_layer.func != nn.BatchNorm2d
+        else:
+            use_bias = norm_layer != nn.BatchNorm2d
 
-        # Initial convolution to map input image to feature space
-        self.initial_conv = nn.Conv2d(input_nc, ndf, kernel_size=7, padding=3, stride=2, bias=True)
+        kw = 4
+        padw = 1
+        sequence = [
+            nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw),
+            nn.LeakyReLU(0.2, True),
+        ]
+        nf_mult = 1
+        nf_mult_prev = 1
+        for n in range(1, n_layers):  # gradually increase the number of filters
+            nf_mult_prev = nf_mult
+            nf_mult = min(2**n, 8)
+            sequence += [
+                nn.Conv2d(
+                    ndf * nf_mult_prev,
+                    ndf * nf_mult,
+                    kernel_size=kw,
+                    stride=2,
+                    padding=padw,
+                    bias=use_bias,
+                ),
+                norm_layer(ndf * nf_mult),
+                nn.LeakyReLU(0.2, True),
+            ]
 
-        blocks = []
-        in_feat = ndf
-        for i in range(n_layers):
-            # Double the features at each layer, up to a max of 8*ndf
-            out_feat = min(ndf * (2 ** (i + 1)), ndf * 8)
-            blocks.append(R3GANDiscBlock(in_feat, out_feat, groups=groups))
-            in_feat = out_feat
+        nf_mult_prev = nf_mult
+        nf_mult = min(2**n_layers, 8)
+        sequence += [
+            nn.Conv2d(
+                ndf * nf_mult_prev,
+                ndf * nf_mult,
+                kernel_size=kw,
+                stride=1,
+                padding=padw,
+                bias=use_bias,
+            ),
+            norm_layer(ndf * nf_mult),
+            nn.LeakyReLU(0.2, True),
+        ]
 
-        # Add a final processing block without downsampling
-        self.blocks = nn.Sequential(*blocks)
-        self.final_block = nn.Sequential(
-            nn.GroupNorm(num_groups=groups, num_channels=in_feat),
-            nn.SiLU(),
-            nn.Conv2d(in_feat, in_feat, kernel_size=3, padding=1),
-        )
+        sequence += [
+            nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)
+        ]  # output 1 channel prediction map
+        self.main = nn.Sequential(*sequence)
 
-        # Final 1x1 convolution to produce a 1-channel prediction map
-        self.final_conv = nn.Conv2d(in_feat, 1, kernel_size=1)
+    def forward(self, input):
+        """Standard forward."""
+        return self.main(input)
 
-    def forward(self, x):
-        x = self.initial_conv(x)
-        x = self.blocks(x)
-        x = self.final_block(x)
-        x = self.final_conv(x)
-        return x
 
-# Example Usage
-if __name__ == '__main__':
-    # Create a dummy input image tensor
-    # Batch size 1, 3 channels (RGB), 256x256 pixels
-    dummy_image = torch.randn(1, 3, 256, 256)
+class HakuNLayerDiscriminator(nn.Module):
+    """
+    Modern patch of NLayerDiscriminator
+    LeakyReLU -> Mish/SiLU
+    BatchNorm2d/ActNorm -> LayerNorm/GroupNorm
+    """
 
-    # Initialize the discriminator
-    discriminator = R3GANDiscriminator(input_nc=3, ndf=64, n_layers=4)
+    def __init__(self, input_nc=3, ndf=64, n_layers=3, gruops=1):
+        """Construct a PatchGAN discriminator
+        Parameters:
+            input_nc (int)  -- the number of channels in input images
+            ndf (int)       -- the number of filters in the last conv layer
+            n_layers (int)  -- the number of conv layers in the discriminator
+            groups (int)    -- the number of groups in GroupNorm, 1 = LayerNorm
+        """
+        super(HakuNLayerDiscriminator, self).__init__()
 
-    # Get the output (a patch-based prediction map)
-    output_map = discriminator(dummy_image)
+        kw = 4
+        padw = 1
+        sequence = [
+            nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw),
+            nn.Mish(),
+        ]
+        nf_mult = 1
+        nf_mult_prev = 1
+        for n in range(1, n_layers):  # gradually increase the number of filters
+            nf_mult_prev = nf_mult
+            nf_mult = min(2**n, 8)
+            sequence += [
+                nn.Conv2d(
+                    ndf * nf_mult_prev,
+                    ndf * nf_mult,
+                    kernel_size=kw,
+                    stride=2,
+                    padding=padw,
+                ),
+                nn.GroupNorm(gruops, ndf * nf_mult),
+                nn.Mish(),
+            ]
 
-    # The output is a grid where each value judges a patch of the input
-    print("R3GAN Discriminator")
-    print(f"Input shape: {dummy_image.shape}")
-    print(f"Output shape: {output_map.shape}") # Should be [1, 1, 16, 16] for 4 layers
+        nf_mult_prev = nf_mult
+        nf_mult = min(2**n_layers, 8)
+        sequence += [
+            nn.Conv2d(
+                ndf * nf_mult_prev,
+                ndf * nf_mult,
+                kernel_size=kw,
+                stride=1,
+                padding=padw,
+            ),
+            nn.GroupNorm(gruops, ndf * nf_mult),
+            nn.Mish(),
+        ]
 
-    # Calculate number of parameters
-    num_params = sum(p.numel() for p in discriminator.parameters() if p.requires_grad)
-    print(f"Number of parameters: {num_params / 1e6:.2f} M")
+        sequence += [
+            nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)
+        ]  # output 1 channel prediction map
+        self.main = nn.Sequential(*sequence)
+
+    def forward(self, input):
+        """Standard forward."""
+        return self.main(input)
