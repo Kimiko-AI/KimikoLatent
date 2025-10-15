@@ -47,7 +47,7 @@ EPOCHS = 10
 BATCH_SIZE = 24
 GRAD_ACC = 4
 GRAD_CKPT = True
-TRAIN_DEC_ONLY = True
+TRAIN_DEC_ONLY = False
 
 LOSS_TYPE = "huber"
 LPIPS_NET = "vgg"
