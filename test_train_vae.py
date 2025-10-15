@@ -130,7 +130,7 @@ if __name__ == "__main__":
 
 
     if TRAIN_DEC_ONLY:
-        vae.requires_grad_(True)
+        vae.requires_grad_(False)
         vae.decoder.up_blocks.requires_grad_(True)
         vae.encoder.down_blocks[0].requires_grad_(True)
         vae.encoder.down_blocks[1].requires_grad_(True)
