@@ -41,7 +41,7 @@ torch.set_float32_matmul_precision('medium' )
 import torch.nn as nn
 from torchvision.transforms import InterpolationMode
 
-BASE_MODEL = "zhang0jhon/flux_wavelet_v2_sc"
+BASE_MODEL = "diffusers/FLUX.1-vae"
 SUB_FOLDER = "vae"
 EPOCHS = 10
 BATCH_SIZE = 8
@@ -96,7 +96,7 @@ if __name__ == "__main__":
     # loader warmup
     next(iter(loader))
 
-    vae: AutoencoderKL = AutoencoderKL.from_pretrained(BASE_MODEL, subfolder=SUB_FOLDER)
+    vae: AutoencoderKL = AutoencoderKL.from_pretrained(BASE_MODEL, subfolder=SUB_FOLDER, ignore_mismatched_sizes=True)
     if GRAD_CKPT:
         vae.enable_gradient_checkpointing()
 
