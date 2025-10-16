@@ -12,12 +12,12 @@ class ImageNetDataset(data.Dataset):
     def __getitem__(self, index):
         entry = self.dataset[index]
         img = entry["webp"]
-        target = entry["json"]
+        #target = entry["__key__"]
 
         if self.transform is not None:
             img = self.transform(img)
 
-        return img, target
+        return img, img
 
     def __len__(self):
         return self.max_len or len(self.dataset)
