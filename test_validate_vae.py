@@ -133,8 +133,8 @@ if __name__ == "__main__":
     all_convn = [[] for _ in range(len(vaes))]
     for idx, batch in enumerate(tqdm(valid_loader)):
         image = batch[0].to(DEVICE)
-        #test_inp = process(image).to(DTYPE)
-        test_inp = image.to(DTYPE)
+        test_inp = process(image).to(DTYPE)
+        #test_inp = image.to(DTYPE)
         batch_size = test_inp.size(0)
 
         for i, vae in enumerate(vaes):

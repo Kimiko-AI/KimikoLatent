@@ -43,7 +43,7 @@ from torchvision.transforms import InterpolationMode
 
 BASE_MODEL = "diffusers/FLUX.1-vae"
 SUB_FOLDER = None
-EPOCHS = 10
+EPOCHS = 2
 BATCH_SIZE = 6
 GRAD_ACC = 4
 GRAD_CKPT = True
@@ -131,32 +131,16 @@ if __name__ == "__main__":
 
     if TRAIN_DEC_ONLY:
         vae.requires_grad_(False)
-        vae.decoder.up_blocks.requires_grad_(True)
-        vae.encoder.down_blocks[0].requires_grad_(True)
-        vae.encoder.down_blocks[1].requires_grad_(True)
-    for name, module in vae.named_modules():
-        if "decoder" in name and "conv_out" in name:
-            if isinstance(module, nn.ConvTranspose2d):
-                module.requires_grad_(True)
-                nn.init.xavier_uniform_(module.weight, gain=1.0)
-                if module.bias is not None:
-                    nn.init.zeros_(module.bias)
-    vae.decoder.up_blocks.requires_grad_(True)
-    for name, module in vae.named_modules():
-        if "encoder" in name and "conv_in" in name:
-            if isinstance(module, nn.Conv2d):
-                module.requires_grad_(True)
-                nn.init.xavier_uniform_(module.weight, gain=1.0)
-                if module.bias is not None:
-                    nn.init.zeros_(module.bias)
-
-
+        vae.decoder.requires_grad_(True)
 
     for name, param in vae.named_parameters():
         if param.requires_grad:
             print(name, param.shape)
 
     vae.get_last_layer = lambda: vae.decoder.conv_out.weight
+    LatentTrainer.load_from_checkpoint(
+        "The-Final-VAE/yxfnmgen/checkpoints/epoch=2-step=28134.ckpt", vae=vae, map_location="cpu", strict=False
+    )
     vae.compile()
     trainer_module = LatentTrainer(
         vae=vae,
@@ -184,7 +168,7 @@ if __name__ == "__main__":
             beta=0.25,
             use_kepler_loss=False,
         ),
-        #adv_loss=AdvLoss(start_iter=ADV_START_ITER, disc_loss="vanilla", n_layers=4),
+        adv_loss=AdvLoss(start_iter=ADV_START_ITER, disc_loss="vanilla", n_layers=4),
         img_deprocess=deprocess,
         log_interval=100,
         loss_weights={
