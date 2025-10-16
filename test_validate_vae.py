@@ -88,7 +88,7 @@ if __name__ == "__main__":
             ToTensor(),
         ]
     )
-    valid_dataset = ImageNetDataset("val" )
+    valid_dataset = ImageNetDataset("val", tran=transform)
     valid_loader = data.DataLoader(
         valid_dataset,
         batch_size=8,
