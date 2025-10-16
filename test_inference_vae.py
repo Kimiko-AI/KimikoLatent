@@ -134,7 +134,7 @@ if __name__ == "__main__":
     for idx, batch in enumerate(tqdm(valid_loader)):
         image = batch[0].to(DEVICE)
         #test_inp = process(image).to(DTYPE)
-        test_inp = image
+        test_inp = image.to(DTYPE)
         batch_size = test_inp.size(0)
 
         for i, vae in enumerate(vaes):
