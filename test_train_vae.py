@@ -44,7 +44,7 @@ from torchvision.transforms import InterpolationMode
 BASE_MODEL = "diffusers/FLUX.1-vae"
 SUB_FOLDER = None
 EPOCHS = 2
-BATCH_SIZE = 6
+BATCH_SIZE = 8
 GRAD_ACC = 4
 GRAD_CKPT = True
 TRAIN_DEC_ONLY = True
@@ -168,7 +168,7 @@ if __name__ == "__main__":
             beta=0.25,
             use_kepler_loss=False,
         ),
-        adv_loss=AdvLoss(start_iter=ADV_START_ITER, disc_loss="vanilla", n_layers=4),
+        #adv_loss=AdvLoss(start_iter=ADV_START_ITER, disc_loss="vanilla", n_layers=4),
         img_deprocess=deprocess,
         log_interval=100,
         loss_weights={
