@@ -101,7 +101,7 @@ if __name__ == "__main__":
     for base_model, sub_folder, ckpt_path, use_approx in zip(
         BASE_MODELS, SUB_FOLDERS, CKPT_PATHS, USE_APPROXS
     ):
-        vae = AutoencoderKL.from_pretrained(base_model, subfolder=sub_folder, ignore_mismatched_sizes=True)
+        vae = AutoencoderKL.from_pretrained(base_model, subfolder=sub_folder)
         if use_approx:
             vae.decoder = LatentApproxDecoder(
                 latent_dim=vae.config.latent_channels,
