@@ -11,8 +11,8 @@ class ImageNetDataset(data.Dataset):
 
     def __getitem__(self, index):
         entry = self.dataset[index]
-        img = entry["image"]
-        target = entry["label"]
+        img = entry["webp"]
+        target = entry["json"]
 
         if self.transform is not None:
             img = self.transform(img)
