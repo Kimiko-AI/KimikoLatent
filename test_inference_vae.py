@@ -85,7 +85,7 @@ if __name__ == "__main__":
             ToTensor(),
         ]
     )
-    valid_dataset = ImageNetDataset('validation', tran=transform)
+    valid_dataset = ImageNetDataset('validation', transform=transform)
     valid_loader = data.DataLoader(
         valid_dataset,
         batch_size=8,
@@ -113,14 +113,9 @@ if __name__ == "__main__":
             vae.decode = lambda x: vae.decoder(x)
             vae.get_last_layer = lambda: vae.decoder.conv_out.weight
         if ckpt_path:
-            ckpt = torch.load(ckpt_path, map_location=DEVICE, weights_only=False)
-            new_state_dict = {}
-            for k, v in ckpt["state_dict"].items():
-                new_key = k.replace("vae.", "", 1) if k.startswith("vae.") else k
-                new_state_dict[new_key] = v
-            result  = vae.load_state_dict(new_state_dict, strict=False)
-            print("Missing keys:", result.missing_keys)
-            print("Unexpected keys:", result.unexpected_keys)
+            LatentTrainer.load_from_checkpoint(
+                ckpt_path, vae=vae, map_location="cpu", strict=False
+            )
         vae = vae.to(DTYPE).eval().requires_grad_(False).to(DEVICE)
         vae.encoder = torch.compile(vae.encoder)
         vae.decoder = torch.compile(vae.decoder)
@@ -135,8 +130,8 @@ if __name__ == "__main__":
     all_convn = [[] for _ in range(len(vaes))]
     for idx, batch in enumerate(tqdm(valid_loader)):
         image = batch[0].to(DEVICE)
-        #test_inp = process(image).to(DTYPE)
-        test_inp = image.to(DTYPE)
+        test_inp = process(image).to(DTYPE)
+        #test_inp = image.to(DTYPE)
         batch_size = test_inp.size(0)
 
         for i, vae in enumerate(vaes):
