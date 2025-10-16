@@ -113,9 +113,12 @@ if __name__ == "__main__":
             vae.decode = lambda x: vae.decoder(x)
             vae.get_last_layer = lambda: vae.decoder.conv_out.weight
         if ckpt_path:
-            LatentTrainer.load_from_checkpoint(
-                ckpt_path, vae=vae, map_location="cpu", strict=False
-            )
+            ckpt = torch.load(ckpt_path, map_location=DEVICE, weights_only=False)
+            new_state_dict = {}
+            for k, v in ckpt["state_dict"].items():
+                new_key = k.replace("vae.", "", 1) if k.startswith("vae.") else k
+                new_state_dict[new_key] = v
+            vae.load_state_dict(new_state_dict)
         vae = vae.to(DTYPE).eval().requires_grad_(False).to(DEVICE)
         vae.encoder = torch.compile(vae.encoder)
         vae.decoder = torch.compile(vae.decoder)
