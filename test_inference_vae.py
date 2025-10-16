@@ -119,7 +119,8 @@ if __name__ == "__main__":
                 new_key = k.replace("vae.", "", 1) if k.startswith("vae.") else k
                 new_state_dict[new_key] = v
             result  = vae.load_state_dict(new_state_dict, strict=False)
-            print(result)
+            print("Missing keys:", result.missing_keys)
+            print("Unexpected keys:", result.unexpected_keys)
         vae = vae.to(DTYPE).eval().requires_grad_(False).to(DEVICE)
         vae.encoder = torch.compile(vae.encoder)
         vae.decoder = torch.compile(vae.decoder)
