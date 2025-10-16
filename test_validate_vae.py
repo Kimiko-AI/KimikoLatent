@@ -33,20 +33,17 @@ if __name__ == "__main__":
 NAMES = [
     "SDXL             ",
     "EQ-SDXL-VAE      ",
-    "Things"
 ]
 BASE_MODELS = [
     "madebyollin/sdxl-vae-fp16-fix",
     "diffusers/FLUX.1-vae",
-    None
 ]
-SUB_FOLDERS = [None, None, None]
+SUB_FOLDERS = [None, None, ]
 CKPT_PATHS = [
     None,
     None,
-    "The-Final-VAE/yxfnmgen/checkpoints/epoch=2-step=28134.ckpt"
 ]
-USE_APPROXS = [False, False, False]
+USE_APPROXS = [False, False, ]
 
 
 def process(x):
