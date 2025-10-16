@@ -8,10 +8,10 @@ from PIL import Image
 from diffusers import AutoencoderKL
 from convnext_perceptual_loss import ConvNextType, ConvNextPerceptualLoss
 
-from hakulatent.trainer import LatentTrainer
-from hakulatent.utils.latent import pca_to_rgb
-from hakulatent.logging import logger
-from hakulatent.models.approx import LatentApproxDecoder
+from src.hakulatent.trainer import LatentTrainer
+from src.hakulatent.utils.latent import pca_to_rgb
+from src.hakulatent.logging import logger
+from src.hakulatent.models.approx import LatentApproxDecoder
 
 
 DEVICE = "cuda"
