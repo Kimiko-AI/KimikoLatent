@@ -17,7 +17,7 @@ if __name__ == "__main__":
         ToTensor,
         CenterCrop,
     )
-    from diffusers import AutoencoderKL
+    from autoencoder_kl import AutoencoderKL
     from convnext_perceptual_loss import ConvNextType, ConvNextPerceptualLoss
 
     from src.hl_dataset.imagenet import ImageNetDataset
