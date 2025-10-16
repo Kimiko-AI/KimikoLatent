@@ -6,7 +6,7 @@ class ImageNetDataset(data.Dataset):
     def __init__(self, split, transform=None, max_len=None):
         self.split = split
         self.transform = transform
-        self.dataset = load_dataset("evanarlian/imagenet_1k_resized_256", split=split)
+        self.dataset = load_dataset("animetimm/danbooru-wdtagger-v4-w640-ws-50k", split=split)
         self.max_len = max_len
 
     def __getitem__(self, index):
