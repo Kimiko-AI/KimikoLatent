@@ -1,46 +1,46 @@
-import warnings
+if __name__ == "__main__":
+    import warnings
 
-import torch
-import torch.nn.functional as F
-import torchvision.transforms.functional as VF
-import lpips
-from PIL import Image
-from diffusers import AutoencoderKL
-from convnext_perceptual_loss import ConvNextType, ConvNextPerceptualLoss
+    warnings.filterwarnings(
+        "ignore",
+        ".*Found keys that are not in the model state dict but in the checkpoint.*",
+    )
 
-from src.hakulatent.trainer import LatentTrainer
-from src.hakulatent.utils.latent import pca_to_rgb
-from src.hakulatent.logging import logger
-from src.hakulatent.models.approx import LatentApproxDecoder
+    import torch
+    import torch.nn.functional as F
+    import torch.utils.data as data
+    import lpips
+    from tqdm import tqdm
+    from torchvision.transforms import (
+        Compose,
+        Resize,
+        ToTensor,
+        CenterCrop,
+    )
+    from diffusers import AutoencoderKL
+    from convnext_perceptual_loss import ConvNextType, ConvNextPerceptualLoss
 
+    from src.hl_dataset.imagenet import ImageNetDataset
+    from src.hakulatent.trainer import LatentTrainer
+    from src.hakulatent.logging import logger
+    from src.hakulatent.models.approx import LatentApproxDecoder
 
-DEVICE = "cuda"
-DTYPE = torch.float16
-SHORT_AXIS_SIZE = 1024
+    DEVICE = "cuda"
+    DTYPE = torch.bfloat16
+    SHORT_AXIS_SIZE = 512
+
 
 NAMES = [
-    "SDXL           ",
-    "EQ-SDXL-VAE    ",
-    "EQ-SDXL-VAE-advON",
+    "EQ-SDXL-VAE      ",
 ]
 BASE_MODELS = [
-    "madebyollin/sdxl-vae-fp16-fix",
-    "KBlueLeaf/EQ-SDXL-VAE",
-    "KBlueLeaf/EQ-SDXL-VAE",
-    # "./models/EQ-SDXL-VAE-ch8",
+    "diffusers/FLUX.1-vae",
 ]
-SUB_FOLDERS = [None, None, None]
+SUB_FOLDERS = [None]
 CKPT_PATHS = [
-    None, 
-    None, 
-    "Y:/EQ-SDXL-VAE-advft-ckpt/epoch=0-step=2000.ckpt",
+    "The-Final-VAE/yxfnmgen/checkpoints/epoch=2-step=28134.ckpt"  ,
 ]
-USE_APPROXS = [False, False, False]
-
-warnings.filterwarnings(
-    "ignore",
-    ".*Found keys that are not in the model state dict but in the checkpoint.*",
-)
+USE_APPROXS = [False, ]
 
 
 def process(x):
@@ -51,71 +51,57 @@ def deprocess(x):
     return x * 0.5 + 0.5
 
 
-lpips_loss = lpips.LPIPS(net="vgg").eval().to(DEVICE).requires_grad_(False).float()
-convn_loss = (
-    ConvNextPerceptualLoss(
-        device=DEVICE,
-        model_type=ConvNextType.TINY,
-        feature_layers=[10, 12, 14],
-        input_range=(0, 1),
-        use_gram=False,
-    )
-    .eval()
-    .requires_grad_(False)
-    .float()
-)
-
-
-def metrics(inp, recon):
-    inp = inp.to(DEVICE).float()
-    recon = recon.to(DEVICE).float()
-    mse = F.mse_loss(inp, recon)
-    psnr = 10 * torch.log10(1 / mse)
-    return (
-        mse.cpu(),
-        psnr.cpu(),
-        lpips_loss(inp, recon, normalize=True).mean().cpu(),
-        convn_loss(inp, recon).mean().cpu(),
-    )
-
-
-def model_distance(model1, model2):
-    state_dict1 = model1.state_dict()
-    state_dict2 = model2.state_dict()
-
-    distance = 0
-    total = 0
-
-    for key in state_dict1.keys():
-        if key in state_dict2 and state_dict1[key].shape == state_dict2[key].shape:
-            distance += torch.dist(state_dict1[key], state_dict2[key])
-            total += 1
-
-    return distance/total
-
-
 if __name__ == "__main__":
-    test_img = Image.open("test4.png").convert("RGB")
-    test_img = VF.to_tensor(test_img)
-    test_inp = process(VF.resize(test_img, SHORT_AXIS_SIZE)[None].to(DEVICE).to(DTYPE))
-    test_img = VF.resize(test_img, SHORT_AXIS_SIZE * 2)[None]
+    lpips_loss = torch.compile(
+        lpips.LPIPS(net="vgg").eval().to(DEVICE).requires_grad_(False)
+    )
+    convn_loss = torch.compile(
+        ConvNextPerceptualLoss(
+            device=DEVICE,
+            model_type=ConvNextType.TINY,
+            feature_layers=[10, 12, 14],
+            input_range=(0, 1),
+            use_gram=False,
+        )
+        .eval()
+        .requires_grad_(False)
+    )
 
-    test_img2 = test_img
-    test_inp2 = test_inp
+    @torch.compile
+    def metrics(inp, recon):
+        mse = F.mse_loss(inp, recon)
+        psnr = 10 * torch.log10(1 / mse)
+        return (
+            mse.cpu(),
+            psnr.cpu(),
+            lpips_loss(inp, recon, normalize=True).mean().cpu(),
+            convn_loss(inp, recon).mean().cpu(),
+        )
 
-    # test_img2 = Image.open("test5.png").convert("RGB")
-    # test_img2 = VF.to_tensor(test_img2)
-    # test_inp2 = process(
-    #     VF.resize(test_img2, list(test_inp.shape[-2:]))[None].to(DEVICE).to(DTYPE)
-    # )
-    # test_img2 = VF.resize(test_img2, list(test_img.shape[-2:]))[None]
+    transform = Compose(
+        [
+            Resize(SHORT_AXIS_SIZE),
+            CenterCrop(SHORT_AXIS_SIZE),
+            ToTensor(),
+        ]
+    )
+    valid_dataset = ImageNetDataset('validation', tran=transform)
+    valid_loader = data.DataLoader(
+        valid_dataset,
+        batch_size=8,
+        shuffle=False,
+        num_workers=8,
+        pin_memory=True,
+        pin_memory_device=DEVICE,
+    )
+    next(iter(valid_loader))
 
     logger.info("Loading models...")
     vaes = []
     for base_model, sub_folder, ckpt_path, use_approx in zip(
         BASE_MODELS, SUB_FOLDERS, CKPT_PATHS, USE_APPROXS
     ):
-        vae = AutoencoderKL.from_pretrained(base_model, subfolder=sub_folder)
+        vae = AutoencoderKL.from_pretrained(base_model, subfolder=sub_folder, ignore_mismatched_sizes=True)
         if use_approx:
             vae.decoder = LatentApproxDecoder(
                 latent_dim=vae.config.latent_channels,
@@ -131,87 +117,46 @@ if __name__ == "__main__":
                 ckpt_path, vae=vae, map_location="cpu", strict=False
             )
         vae = vae.to(DTYPE).eval().requires_grad_(False).to(DEVICE)
-        vaes.append(vae)
+        vae.encoder = torch.compile(vae.encoder)
+        vae.decoder = torch.compile(vae.decoder)
+        vaes.append(torch.compile(vae))
 
-    logger.info("Calculating distances...")
+    logger.info("Running Validation")
+    total = 0
+    all_latents = [[] for _ in range(len(vaes))]
+    all_mse = [[] for _ in range(len(vaes))]
+    all_psnr = [[] for _ in range(len(vaes))]
+    all_lpips = [[] for _ in range(len(vaes))]
+    all_convn = [[] for _ in range(len(vaes))]
+    for idx, batch in enumerate(tqdm(valid_loader)):
+        image = batch[0].to(DEVICE)
+        test_inp = process(image).to(DTYPE)
+        batch_size = test_inp.size(0)
+
+        for i, vae in enumerate(vaes):
+            latent = vae.encode(test_inp).latent_dist.mode()
+            recon = deprocess(vae.decode(latent).sample.float())
+            all_latents[i].append(latent.cpu().float())
+            mse, psnr, lpips_, convn = metrics(image, recon)
+            all_mse[i].append(mse.cpu() * batch_size)
+            all_psnr[i].append(psnr.cpu() * batch_size)
+            all_lpips[i].append(lpips_.cpu() * batch_size)
+            all_convn[i].append(convn.cpu() * batch_size)
+
+        total += batch_size
+
     for i in range(len(vaes)):
-        for j in range(i + 1, len(vaes)):
-            distance = model_distance(vaes[i], vaes[j])
-            logger.info(f"Distance between {i} and {j}: {distance}")
+        all_latents[i] = torch.cat(all_latents[i], dim=0)
+        all_mse[i] = torch.stack(all_mse[i]).sum() / total
+        all_psnr[i] = torch.stack(all_psnr[i]).sum() / total
+        all_lpips[i] = torch.stack(all_lpips[i]).sum() / total
+        all_convn[i] = torch.stack(all_convn[i]).sum() / total
 
-    logger.info("Running Encoding...")
-
-    latent1s = []
-    for vae in vaes:
-        latent1s.append(vae.encode(test_inp).latent_dist.mode().float())
-
-    latent2s = []
-    for vae in vaes:
-        latent2s.append(vae.encode(test_inp2).latent_dist.mode().float())
-
-    latents = [
-        latent1 * 0.5 + latent2 * 0.5 for latent1, latent2 in zip(latent1s, latent2s)
-    ]
-    logger.info("Running Decoding...")
-
-    recons = []
-    for vae, latent in zip(vaes, latents):
-        recon = vae.decode(latent.to(DTYPE))
-        if hasattr(recon, "sample"):
-            recon = recon.sample
-        recon = deprocess(recon.cpu().float())[:, :3]
-        recons.append(recon)
-
-    logger.info("Done, calculating results...")
-    latent_rgbs = []
-    for latent in latents:
-        latent_rgbs.append(
-            F.interpolate(
-                pca_to_rgb(latent.cpu().float()), recons[-1].shape[-2:], mode="nearest"
-            )
-        )
-
-    test_inp = deprocess(
-        F.interpolate(test_inp, recons[-1].shape[-2:], mode="bilinear")
-    )
-    test_inp2 = deprocess(
-        F.interpolate(test_inp2, recons[-1].shape[-2:], mode="bilinear")
-    )
-    test_inp = 0.5 * test_inp + 0.5 * test_inp2
-    test_img = F.interpolate(
-        test_img, [i * 2 for i in recons[-1].shape[-2:]], mode="bilinear"
-    )
-    test_img2 = F.interpolate(
-        test_img2, [i * 2 for i in recons[-1].shape[-2:]], mode="bilinear"
-    )
-    test_img = 0.5 * test_img + 0.5 * test_img2
-
-    mses, psnrs, lpipses, convnes = [], [], [], []
-    for name, recon in zip(NAMES, recons):
-        mse, psnr, lpips_, convn = metrics(test_inp.float(), recon.float())
         logger.info(
-            f"  - {name}: MSE: {mse:.3e}, PSNR: {psnr:.4f}, "
-            f"LPIPS: {lpips_:.4f}, ConvNeXt: {convn:.3e}"
+            f"  - {NAMES[i]}: MSE: {all_mse[i]:.3e}, PSNR: {all_psnr[i]:.4f}, "
+            f"LPIPS: {all_lpips[i]:.4f}, ConvNeXt: {all_convn[i]:.3e}"
         )
 
     logger.info("Saving results...")
-    result_grid = torch.cat(
-        [
-            test_img,
-            torch.cat(
-                [
-                    torch.cat([recon, latent_rgb], dim=-2)
-                    for recon, latent_rgb in zip(recons, latent_rgbs)
-                ],
-                dim=-1,
-            ),
-        ],
-        dim=-1,
-    )
-    result_grid = result_grid.clamp(0, 1)
-    result_grid = result_grid.permute(0, 2, 3, 1).cpu()
-    result_grid = result_grid[0]
-    result_grid = (result_grid * 255).to(torch.uint8).numpy()
-    result_grid = Image.fromarray(result_grid)
-    result_grid.save("result.jpg", quality=95)
-    logger.info("All done!")
+    for name, latents in zip(NAMES, all_latents):
+        torch.save(latents, f"./output/{name.strip()}-latent.pt")
