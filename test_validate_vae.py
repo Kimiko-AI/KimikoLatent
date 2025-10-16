@@ -20,10 +20,10 @@ if __name__ == "__main__":
     from diffusers import AutoencoderKL
     from convnext_perceptual_loss import ConvNextType, ConvNextPerceptualLoss
 
-    from hl_dataset.imagenet import ImageNetDataset
-    from hakulatent.trainer import LatentTrainer
-    from hakulatent.logging import logger
-    from hakulatent.models.approx import LatentApproxDecoder
+    from src.hl_dataset.imagenet import ImageNetDataset
+    from src.hakulatent.trainer import LatentTrainer
+    from src.hakulatent.logging import logger
+    from src.hakulatent.models.approx import LatentApproxDecoder
 
     DEVICE = "cuda"
     DTYPE = torch.bfloat16
