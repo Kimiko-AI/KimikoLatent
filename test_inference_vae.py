@@ -118,7 +118,8 @@ if __name__ == "__main__":
             for k, v in ckpt["state_dict"].items():
                 new_key = k.replace("vae.", "", 1) if k.startswith("vae.") else k
                 new_state_dict[new_key] = v
-            vae.load_state_dict(new_state_dict, strict=False)
+            result  = vae.load_state_dict(new_state_dict, strict=False)
+            print(result)
         vae = vae.to(DTYPE).eval().requires_grad_(False).to(DEVICE)
         vae.encoder = torch.compile(vae.encoder)
         vae.decoder = torch.compile(vae.decoder)
