@@ -26,28 +26,24 @@ if __name__ == "__main__":
     from hakulatent.models.approx import LatentApproxDecoder
 
     DEVICE = "cuda"
-    DTYPE = torch.float16
-    SHORT_AXIS_SIZE = 256
+    DTYPE = torch.bfloat16
+    SHORT_AXIS_SIZE = 512
 
 
 NAMES = [
     "SDXL             ",
     "EQ-SDXL-VAE      ",
-    "EQ-SDXL-VAE-advON",
 ]
 BASE_MODELS = [
     "madebyollin/sdxl-vae-fp16-fix",
-    "KBlueLeaf/EQ-SDXL-VAE",
-    "KBlueLeaf/EQ-SDXL-VAE",
-    # "./models/EQ-SDXL-VAE-ch8",
+    "diffusers/FLUX.1-vae",
 ]
-SUB_FOLDERS = [None, None, None]
+SUB_FOLDERS = [None, None]
 CKPT_PATHS = [
     None,
     None,
-    "Y:/EQ-SDXL-VAE-advft-ckpt/epoch=1-step=40000.ckpt",
 ]
-USE_APPROXS = [False, False, False]
+USE_APPROXS = [False, False]
 
 
 def process(x):
@@ -96,7 +92,7 @@ if __name__ == "__main__":
     test_dataset = ImageNetDataset("test", transform=transform)
     valid_loader = data.DataLoader(
         data.ConcatDataset([valid_dataset, test_dataset]),
-        batch_size=64,
+        batch_size=8,
         shuffle=False,
         num_workers=8,
         pin_memory=True,
