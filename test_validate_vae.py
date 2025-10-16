@@ -91,7 +91,7 @@ if __name__ == "__main__":
     valid_dataset = ImageNetDataset('validation', transform=transform)
     valid_loader = data.DataLoader(
         valid_dataset,
-        batch_size=8,
+        batch_size=16,
         shuffle=False,
         num_workers=8,
         pin_memory=True,
