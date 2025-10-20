@@ -216,6 +216,6 @@ if __name__ == "__main__":
             LearningRateMonitor(logging_interval="step"),
         ],
         log_every_n_steps=1,
-        strategy='ddp_find_unused_parameters_true'
+        #strategy='ddp_find_unused_parameters_true'
     )
     trainer.fit(trainer_module, loader)

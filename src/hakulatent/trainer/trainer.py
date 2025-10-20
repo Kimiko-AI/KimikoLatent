@@ -179,7 +179,7 @@ class LatentTrainer(BaseTrainer):
         self.swt = SWTLoss(loss_weight_ll=0.05, loss_weight_lh=0.025, loss_weight_hl=0.025, loss_weight_hh=0.02)
         self.vf_loss = VFLoss()
         self.vf_loss.proj.reset_parameters()
-
+        self.vf_loss.proj.requires_grad_(True)
         self.adv_loss = adv_loss
         if isinstance(loss_weights, dict):
             self.recon_loss_weight = loss_weights.get("recon", 1.0)
@@ -210,7 +210,7 @@ class LatentTrainer(BaseTrainer):
             self.lycoris_model.train()
             self.train_params = list(self.lycoris_model.parameters())
         else:
-            self.train_params = [i for i in self.vae.parameters() if i.requires_grad] + [i for i in self.vf_loss.parameters() if i.requires_grad]
+            self.train_params = [i for i in self.vae.parameters() if i.requires_grad] + [i for i in self.vf_loss.proj.parameters() if i.requires_grad]
 
         if self.latent_loss is not None:
             self.train_params = self.train_params + list(self.latent_loss.parameters())
@@ -267,38 +267,31 @@ class LatentTrainer(BaseTrainer):
         latent = dist.sample()
         origin = latent.clone()
 
-        # optional transform
         if self.transform is not None and random.random() < self.transform_prob:
             x, latent = self.transform(x, latent)
 
-        # ===== Log-normal random channel masking =====
         num_channels = latent.shape[1]
+        batch_size = latent.shape[0]
 
-        # Draw from log-normal distribution
-        # mean and sigma here are of the *underlying normal distribution*,
-        # not the log-normal itself.
-        mu, sigma = 1.0, 0.75  # tweak these to control masking behavior
-        lognormal_value = random.lognormvariate(mu, sigma)
-
-        # Convert to an integer between 1 and min(32, num_channels)
-        n_mask = int(min(max(round(lognormal_value), 1), min(32, num_channels)))
-
-        mask_channels = random.sample(range(num_channels), n_mask)
+        mu, sigma = 1.0, 0.75
 
         mask = torch.ones_like(latent)
-        mask[:, mask_channels, :, :] = 0
+
+        for i in range(batch_size):
+            lognormal_value = random.lognormvariate(mu, sigma)
+            n_mask = int(min(max(round(lognormal_value), 1), min(32, num_channels)))
+            mask_channels = random.sample(range(num_channels), n_mask)
+            mask[i, mask_channels, :, :] = 0  # apply unique mask per image
+
         latent = latent * mask
 
-        # decode
         x_rec = self.vae.decode(latent)
         if hasattr(x_rec, "sample"):
             x_rec = x_rec.sample
         if x.shape[2:] != x_rec.shape[2:]:
             x = F.interpolate(x, size=x_rec.shape[2:], mode="bicubic")
 
-        # return masked info for logging
-        return origin, x, x_rec, latent, dist, mask_channels
-
+        return origin, x, x_rec, latent, dist, mask
 
     def recon_step(self, x, x_rec, latent, dist, g_opt, g_sch, batch_idx, grad_acc, imags):
         recon_loss = self.recon_loss(x, x_rec)
