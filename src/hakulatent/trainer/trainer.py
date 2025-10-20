@@ -208,7 +208,7 @@ class LatentTrainer(BaseTrainer):
             self.lycoris_model.train()
             self.train_params = list(self.lycoris_model.parameters())
         else:
-            self.train_params = [i for i in self.vae.parameters() if i.requires_grad]
+            self.train_params = [i for i in self.vae.parameters() if i.requires_grad] + list(self.vq_vae.parameters())
 
         if self.latent_loss is not None:
             self.train_params = self.train_params + list(self.latent_loss.parameters())
