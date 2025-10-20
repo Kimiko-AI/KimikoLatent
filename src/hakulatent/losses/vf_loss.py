@@ -34,9 +34,8 @@ class VFLoss(nn.Module):
         for p in self.dinov2.parameters():
             p.requires_grad_(False)
 
-        self.proj = nn.Sequential(
-            nn.Conv2d(32, 1024, kernel_size=7, bias=True, padding=3),
-        )
+        self.proj =nn.Conv2d(32, 1024, kernel_size=7, bias=True, padding=3)
+
 
     @torch.no_grad()
     def get_dinov2_features(self, x):
