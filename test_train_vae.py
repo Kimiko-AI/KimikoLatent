@@ -137,7 +137,7 @@ if __name__ == "__main__":
         vae.decoder.conv_in.requires_grad_(True)
         vae.encoder.down_blocks[0].requires_grad_(True)
         vae.encoder.down_blocks[1].requires_grad_(True)
-        vae.decoder.middle_blocks.requires_grad_(True)
+        vae.decoder.mid_block.requires_grad_(True)
 
     for name, param in vae.named_parameters():
         if param.requires_grad:
