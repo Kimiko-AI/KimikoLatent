@@ -41,13 +41,13 @@ torch.set_float32_matmul_precision('medium' )
 import torch.nn as nn
 from torchvision.transforms import InterpolationMode
 
-BASE_MODEL = "Shio-Koube/SQ-EQ-VAE"
+BASE_MODEL = "Shio-Koube/REPA-E-INVAE-diffusers"
 SUB_FOLDER = None
 EPOCHS = 10
 BATCH_SIZE = 8
 GRAD_ACC = 4
 GRAD_CKPT = True
-TRAIN_DEC_ONLY = True
+TRAIN_DEC_ONLY = False
 
 LOSS_TYPE = "huber"
 LPIPS_NET = "vgg"

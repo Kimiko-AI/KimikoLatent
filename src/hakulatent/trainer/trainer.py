@@ -9,7 +9,7 @@ import torch.optim as optim
 import torch.optim.lr_scheduler as lr_sch
 import lightning.pytorch as pl
 import wandb
-from ..losses.vf_loss import VQVAE
+from ..losses.vf_loss import VFLoss
 from diffusers import (
     AutoencoderKL,
 )
@@ -177,7 +177,7 @@ class LatentTrainer(BaseTrainer):
         self.latent_loss = latent_loss
         self.recon_loss = recon_loss
         self.swt = SWTLoss(loss_weight_ll=0.05, loss_weight_lh=0.025, loss_weight_hl=0.025, loss_weight_hh=0.02)
-        self.vq_vae = VQVAE(in_channels = 4, hidden_channels = 512, num_embeddings=8196, z_channels=16)
+        self.vf_loss = VFLoss()
         self.adv_loss = adv_loss
         if isinstance(loss_weights, dict):
             self.recon_loss_weight = loss_weights.get("recon", 1.0)
@@ -269,42 +269,38 @@ class LatentTrainer(BaseTrainer):
         if self.transform is not None and random.random() < self.transform_prob:
             x, latent = self.transform(x, latent)
 
-        # take first 4 channels
-        half = latent[:, :4]
-        half, total_loss, recon_loss, vq_loss = self.vq_vae(half)
+        # ===== Log-normal random channel masking =====
+        num_channels = latent.shape[1]
 
-        # --- Deterministic: half batch merge, half batch pad ---
-        batch_size = latent.size(0)
-        half_batch = batch_size // 2
+        # Draw from log-normal distribution
+        # mean and sigma here are of the *underlying normal distribution*,
+        # not the log-normal itself.
+        mu, sigma = 1.0, 0.75  # tweak these to control masking behavior
+        lognormal_value = random.lognormvariate(mu, sigma)
 
-        # clone for modification
-        latent_new = latent.clone()
+        # Convert to an integer between 1 and min(32, num_channels)
+        n_mask = int(min(max(round(lognormal_value), 1), min(32, num_channels)))
 
-        # 1) First half: merge
-        latent_new[:half_batch, :4] = half[:half_batch]
+        mask_channels = random.sample(range(num_channels), n_mask)
 
-        # 2) Second half: pad (replace with zero-padded version)
-        pad_channels = latent.shape[1] - half.shape[1]
-        if pad_channels > 0:
-            pad_shape = (half_batch, pad_channels, *half.shape[2:])
-            zeros = torch.zeros(pad_shape, device=half.device, dtype=half.dtype)
-            padded_half = torch.cat([half[half_batch:], zeros], dim=1)
-        else:
-            padded_half = half[half_batch:]
-        latent_new[half_batch:] = padded_half
+        mask = torch.ones_like(latent)
+        mask[:, mask_channels, :, :] = 0
+        latent = latent * mask
 
         # decode
-        x_rec = self.vae.decode(latent_new)
+        x_rec = self.vae.decode(latent)
         if hasattr(x_rec, "sample"):
             x_rec = x_rec.sample
         if x.shape[2:] != x_rec.shape[2:]:
             x = F.interpolate(x, size=x_rec.shape[2:], mode="bicubic")
 
-        return origin, x, x_rec, latent_new, dist, total_loss
+        # return masked info for logging
+        return origin, x, x_rec, latent, dist, mask_channels
+
 
     def recon_step(self, x, x_rec, latent, dist, g_opt, g_sch, batch_idx, grad_acc, imags):
         recon_loss = self.recon_loss(x, x_rec)
-        #vf_loss = self.vf_loss(latent, imags)
+        vf_loss = self.vf_loss(latent, imags)
         # --- Cycle loss ---
         cycle_loss = torch.tensor(0.0, device=x.device)
         if self.cycle_loss_weight > 0:
@@ -324,8 +320,7 @@ class LatentTrainer(BaseTrainer):
                 + kl_loss * self.kl_loss_weight
                 + reg_loss * self.reg_loss_weight
                 + cycle_loss * self.cycle_loss_weight
-                + swt * 0.1 +  imags * 0.1
-        )
+                + swt * 0.1 + vf_loss )
         adv_loss = torch.tensor(0.0, device=x.device)
         if (
                 self.adv_loss is not None
@@ -361,7 +356,7 @@ class LatentTrainer(BaseTrainer):
         self.log("train/swt_loss", swt.item(), on_step=True, prog_bar=True, logger=True)
 
         self.log(
-            "train/vq_loss", imags.item(), on_step=True, prog_bar=True, logger=True
+            "train/vf_loss", vf_loss.item(), on_step=True, prog_bar=True, logger=True
         )
         self.log("train/adv_loss", adv_loss.item(), prog_bar=True, logger=True)
         self.log(
@@ -408,7 +403,7 @@ class LatentTrainer(BaseTrainer):
 
     @torch.no_grad()
     @torch.autocast("cuda", enabled=False)
-    def log_images(self, org_x, x, x_rec, latent):
+    def log_images(self, org_x, x, x_rec, latent, mask_channels):
         from PIL import Image
 
         org_x = org_x.float()[:8]
@@ -430,8 +425,10 @@ class LatentTrainer(BaseTrainer):
             (concat_images.clamp(0, 1) * 255).to(torch.uint8).permute(1, 2, 0).numpy()
         )
         concat_images = Image.fromarray(concat_images)
+        if mask_channels is not None:
+            caption = f"Masked channels: {mask_channels}"
         if hasattr(self.logger, "log_image"):
-            self.logger.log_image("train/samples", [concat_images])
+            self.logger.log_image("train/samples", [concat_images], caption=[caption])
         else:
             concat_images.save("train_samples.png")
 
@@ -440,7 +437,7 @@ class LatentTrainer(BaseTrainer):
         dist: DiagonalGaussianDistribution
         x, dino = batch
         org_x = x.clone()
-        origin_latent, x, x_rec, latent, dist, losses = self.basic_step(x)
+        origin_latent, x, x_rec, latent, dist, mask_channels = self.basic_step(x)
         try:
             g_opt, *d_opt = self.optimizers()
             g_sch, *d_sch = self.lr_schedulers()
@@ -457,10 +454,11 @@ class LatentTrainer(BaseTrainer):
                 self.img_deprocess(x),
                 self.img_deprocess(x_rec),
                 latent,
+                mask_channels
             )
 
         # VAE Loss
-        self.recon_step(x, x_rec, latent, dist, g_opt, g_sch, idx, grad_acc, losses)
+        self.recon_step(x, x_rec, latent, dist, g_opt, g_sch, idx, grad_acc, dino)
 
         ## Discriminator Loss
         d_opt = list(d_opt)

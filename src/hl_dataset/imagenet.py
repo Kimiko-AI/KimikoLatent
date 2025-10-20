@@ -30,7 +30,10 @@ class ImageNetDataset(data.Dataset):
         # Post-processing for DINO
         self.dino_post = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Resize((256, 256), interpolation=transforms.InterpolationMode.BICUBIC)
+            transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]
+            )
         ])
 
     def __getitem__(self, index):
@@ -42,9 +45,8 @@ class ImageNetDataset(data.Dataset):
 
         # Apply separate post-processing
         train_img = self.train_post(crop) * 2 - 1
-        dino_img = self.dino_post(crop) * 2 - 1
-
-        return train_img, train_img
+        dino_img = self.dino_post(crop)
+        return train_img, dino_img
 
     def __len__(self):
         return self.max_len or len(self.dataset)
