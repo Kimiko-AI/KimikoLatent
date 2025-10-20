@@ -9,10 +9,11 @@ import torch.optim as optim
 import torch.optim.lr_scheduler as lr_sch
 import lightning.pytorch as pl
 import wandb
-
+from ..losses.vf_loss import VQVAE
 from diffusers import (
     AutoencoderKL,
 )
+import random
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from anyschedule import AnySchedule
 from ..utils import instantiate
@@ -176,7 +177,7 @@ class LatentTrainer(BaseTrainer):
         self.latent_loss = latent_loss
         self.recon_loss = recon_loss
         self.swt = SWTLoss(loss_weight_ll=0.05, loss_weight_lh=0.025, loss_weight_hl=0.025, loss_weight_hh=0.02)
-
+        self.vq_vae = VQVAE(in_channels = 4, hidden_dim = 512, num_embeddings=4096)
         self.adv_loss = adv_loss
         if isinstance(loss_weights, dict):
             self.recon_loss_weight = loss_weights.get("recon", 1.0)
@@ -262,32 +263,55 @@ class LatentTrainer(BaseTrainer):
         dist.deterministic = False
 
         latent = dist.sample()
-        orgin = latent
+        origin = latent.clone()
+
+        # optional transform
         if self.transform is not None and random.random() < self.transform_prob:
             x, latent = self.transform(x, latent)
 
+        # take first 4 channels
+        half = latent[:, :4]
+        half, total_loss, recon_loss, vq_loss = self.vq_vae(half)
+
+        # --- New behavior: 50% chance merge vs pad ---
+        if random.random() < 0.5:
+            # merge: replace first 4 channels of latent with processed half
+            latent = latent.clone()
+            latent[:, :4] = half
+        else:
+            # pad: zero-pad half to match latent's channel dimension
+            pad_channels = latent.shape[1] - half.shape[1]
+            if pad_channels > 0:
+                pad_shape = (half.shape[0], pad_channels, *half.shape[2:])
+                zeros = torch.zeros(pad_shape, device=half.device, dtype=half.dtype)
+                latent = torch.cat([half, zeros], dim=1)
+            else:
+                latent = half
+
+        # decode
         x_rec = self.vae.decode(latent)
         if hasattr(x_rec, "sample"):
             x_rec = x_rec.sample
         if x.shape[2:] != x_rec.shape[2:]:
             x = F.interpolate(x, size=x_rec.shape[2:], mode="bicubic")
-        return orgin, x, x_rec, latent, dist
+
+        return origin, x, x_rec, latent, dist, total_loss
 
     def recon_step(self, x, x_rec, latent, dist, g_opt, g_sch, batch_idx, grad_acc, imags):
-        recon_loss = self.recon_loss(imags, x_rec)
+        recon_loss = self.recon_loss(x, x_rec)
         #vf_loss = self.vf_loss(latent, imags)
         # --- Cycle loss ---
         cycle_loss = torch.tensor(0.0, device=x.device)
         if self.cycle_loss_weight > 0:
             with torch.no_grad():  # detach to avoid gradient loops on the VAE
-                latent_cycle = self.vae.encode(imags).latent_dist.sample()
+                latent_cycle = self.vae.encode(x).latent_dist.sample()
                 latent_cycle2 = self.vae.encode(x_rec).latent_dist.sample()
 
             cycle_loss = F.mse_loss(latent_cycle2, latent_cycle)
 
         kl_loss = torch.sum(dist.kl()) / x_rec.numel()
         reg_loss = torch.tensor(0.0, device=x.device)
-        swt = self.swt(x_rec, imags)
+        swt = self.swt(x_rec, x)
         if self.latent_loss is not None:
             reg_loss += self.latent_loss(latent)
         loss = (
@@ -295,7 +319,7 @@ class LatentTrainer(BaseTrainer):
                 + kl_loss * self.kl_loss_weight
                 + reg_loss * self.reg_loss_weight
                 + cycle_loss * self.cycle_loss_weight
-                + swt * 0
+                + swt * imags
         )
         adv_loss = torch.tensor(0.0, device=x.device)
         if (
@@ -411,7 +435,7 @@ class LatentTrainer(BaseTrainer):
         dist: DiagonalGaussianDistribution
         x, dino = batch
         org_x = x.clone()
-        origin_latent, x, x_rec, latent, dist = self.basic_step(x)
+        origin_latent, x, x_rec, latent, dist, losses = self.basic_step(x)
         try:
             g_opt, *d_opt = self.optimizers()
             g_sch, *d_sch = self.lr_schedulers()
@@ -431,7 +455,7 @@ class LatentTrainer(BaseTrainer):
             )
 
         # VAE Loss
-        self.recon_step(x, x_rec, latent, dist, g_opt, g_sch, idx, grad_acc, dino)
+        self.recon_step(x, x_rec, latent, dist, g_opt, g_sch, idx, grad_acc, losses)
 
         ## Discriminator Loss
         d_opt = list(d_opt)
