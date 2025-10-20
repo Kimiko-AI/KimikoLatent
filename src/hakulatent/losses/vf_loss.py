@@ -44,7 +44,7 @@ class VFLoss(nn.Module):
         Returns [B, df, H_f, W_f].
         """
         feats = self.dinov2.forward_features(x)
-        feats, cls = feats[:, 0], feats[:, 5:]
+        feats, cls = feats[:, 5:], feats[:, 0]
         feats = feats.reshape(feats.size(0), 16, 16, 1024).permute(0, 3, 1, 2)
         return feats, cls
 
