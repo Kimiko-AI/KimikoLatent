@@ -177,7 +177,7 @@ class LatentTrainer(BaseTrainer):
         self.latent_loss = latent_loss
         self.recon_loss = recon_loss
         self.swt = SWTLoss(loss_weight_ll=0.05, loss_weight_lh=0.025, loss_weight_hl=0.025, loss_weight_hh=0.02)
-        self.vq_vae = VQVAE(in_channels = 4, hidden_dim = 512, num_embeddings=4096)
+        self.vq_vae = VQVAE(in_channels = 4, hidden_channels = 512, num_embeddings=8196, z_channels=16)
         self.adv_loss = adv_loss
         if isinstance(loss_weights, dict):
             self.recon_loss_weight = loss_weights.get("recon", 1.0)
