@@ -273,29 +273,34 @@ class LatentTrainer(BaseTrainer):
         half = latent[:, :4]
         half, total_loss, recon_loss, vq_loss = self.vq_vae(half)
 
-        # --- New behavior: 50% chance merge vs pad ---
-        if random.random() < 0.5:
-            # merge: replace first 4 channels of latent with processed half
-            latent = latent.clone()
-            latent[:, :4] = half
+        # --- Deterministic: half batch merge, half batch pad ---
+        batch_size = latent.size(0)
+        half_batch = batch_size // 2
+
+        # clone for modification
+        latent_new = latent.clone()
+
+        # 1) First half: merge
+        latent_new[:half_batch, :4] = half[:half_batch]
+
+        # 2) Second half: pad (replace with zero-padded version)
+        pad_channels = latent.shape[1] - half.shape[1]
+        if pad_channels > 0:
+            pad_shape = (half_batch, pad_channels, *half.shape[2:])
+            zeros = torch.zeros(pad_shape, device=half.device, dtype=half.dtype)
+            padded_half = torch.cat([half[half_batch:], zeros], dim=1)
         else:
-            # pad: zero-pad half to match latent's channel dimension
-            pad_channels = latent.shape[1] - half.shape[1]
-            if pad_channels > 0:
-                pad_shape = (half.shape[0], pad_channels, *half.shape[2:])
-                zeros = torch.zeros(pad_shape, device=half.device, dtype=half.dtype)
-                latent = torch.cat([half, zeros], dim=1)
-            else:
-                latent = half
+            padded_half = half[half_batch:]
+        latent_new[half_batch:] = padded_half
 
         # decode
-        x_rec = self.vae.decode(latent)
+        x_rec = self.vae.decode(latent_new)
         if hasattr(x_rec, "sample"):
             x_rec = x_rec.sample
         if x.shape[2:] != x_rec.shape[2:]:
             x = F.interpolate(x, size=x_rec.shape[2:], mode="bicubic")
 
-        return origin, x, x_rec, latent, dist, total_loss
+        return origin, x, x_rec, latent_new, dist, total_loss
 
     def recon_step(self, x, x_rec, latent, dist, g_opt, g_sch, batch_idx, grad_acc, imags):
         recon_loss = self.recon_loss(x, x_rec)
@@ -319,7 +324,7 @@ class LatentTrainer(BaseTrainer):
                 + kl_loss * self.kl_loss_weight
                 + reg_loss * self.reg_loss_weight
                 + cycle_loss * self.cycle_loss_weight
-                + swt +  imags
+                + swt * 0.1 +  imags * 0.1
         )
         adv_loss = torch.tensor(0.0, device=x.device)
         if (

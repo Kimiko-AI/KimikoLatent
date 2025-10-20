@@ -25,11 +25,13 @@ class ResidualBlock(nn.Module):
 # Vector Quantizer
 # --------------------------------
 class VectorQuantizer(nn.Module):
-    def __init__(self, num_embeddings=4096, embedding_dim=128, commitment_cost=0.25):
+    def __init__(self, num_embeddings=4096, embedding_dim=128, commitment_cost=0.25, entropy_weight=0.1):
         super().__init__()
         self.embedding_dim = embedding_dim
         self.num_embeddings = num_embeddings
         self.commitment_cost = commitment_cost
+        self.entropy_weight = entropy_weight
+
         self.embeddings = nn.Embedding(num_embeddings, embedding_dim)
         self.embeddings.weight.data.uniform_(-1 / num_embeddings, 1 / num_embeddings)
 
@@ -38,29 +40,42 @@ class VectorQuantizer(nn.Module):
         flatten = inputs.permute(0, 2, 3, 1).contiguous()
         flat_input = flatten.view(-1, self.embedding_dim)
 
-        # Distances to embeddings
+        # Compute distances to all embeddings
         distances = (
             flat_input.pow(2).sum(1, keepdim=True)
             - 2 * flat_input @ self.embeddings.weight.t()
             + self.embeddings.weight.pow(2).sum(1)
         )
 
-        encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
-        encodings = torch.zeros(encoding_indices.size(0), self.num_embeddings, device=inputs.device)
-        encodings.scatter_(1, encoding_indices, 1)
+        # Get encoding indices
+        encoding_indices = torch.argmin(distances, dim=1)  # shape [N]
+        encodings = F.one_hot(encoding_indices, self.num_embeddings).type(flat_input.dtype)
 
+        # Quantize
         quantized = encodings @ self.embeddings.weight
         quantized = quantized.view(flatten.shape)
 
-        # VQ losses
+        # --- Standard VQ losses ---
         e_latent_loss = F.mse_loss(quantized.detach(), flatten)
         q_latent_loss = F.mse_loss(quantized, flatten.detach())
-        loss = q_latent_loss + self.commitment_cost * e_latent_loss
+        vq_loss = q_latent_loss + self.commitment_cost * e_latent_loss
+
+        # --- Entropy regularization ---
+        with torch.no_grad():
+            # Compute code usage probabilities for the batch
+            usage = torch.bincount(encoding_indices, minlength=self.num_embeddings).float()
+            p = usage / (usage.sum() + 1e-10)
+
+        entropy = -(p * (p + 1e-10).log()).sum()
+        utilization_loss = -self.entropy_weight * entropy  # maximize entropy
+
+        total_vq_loss = vq_loss + utilization_loss
 
         # Straight-through estimator
         quantized = flatten + (quantized - flatten).detach()
         quantized = quantized.permute(0, 3, 1, 2).contiguous()
-        return quantized, loss
+
+        return quantized, total_vq_loss
 
 # --------------------------------
 # Encoder: Down → Res → Down → Res
