@@ -273,15 +273,16 @@ class LatentTrainer(BaseTrainer):
         num_channels = latent.shape[1]
         batch_size = latent.shape[0]
 
-        mu, sigma = 1.0, 0.75
-
         mask = torch.ones_like(latent)
+        start_channels = []  # store only start indices
 
         for i in range(batch_size):
-            lognormal_value = random.lognormvariate(mu, sigma)
-            n_mask = int(min(max(round(lognormal_value), 1), min(32, num_channels)))
-            mask_channels = random.sample(range(num_channels), n_mask)
-            mask[i, mask_channels, :, :] = 0  # apply unique mask per image
+            # Randomly choose start channel
+            start_ch = random.randint(1, num_channels - 1)
+            # Mask from start_ch to end
+            mask[i, start_ch:, :, :] = 0
+            # Record the start index
+            start_channels.append(start_ch)
 
         latent = latent * mask
 
@@ -291,7 +292,8 @@ class LatentTrainer(BaseTrainer):
         if x.shape[2:] != x_rec.shape[2:]:
             x = F.interpolate(x, size=x_rec.shape[2:], mode="bicubic")
 
-        return origin, x, x_rec, latent, dist, mask
+        # Return the start indices instead of lists or tensor mask
+        return origin, x, x_rec, latent, dist, start_channels
 
     def recon_step(self, x, x_rec, latent, dist, g_opt, g_sch, batch_idx, grad_acc, imags):
         recon_loss = self.recon_loss(x, x_rec)
