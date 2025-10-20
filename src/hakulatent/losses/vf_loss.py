@@ -132,5 +132,5 @@ class VQVAE(nn.Module):
         z_q, vq_loss = self.quantizer(z)
         x_recon = self.decoder(z_q)
         recon_loss = F.mse_loss(x_recon, x)
-        total_loss = recon_loss + vq_loss
+        total_loss = recon_loss + vq_loss * 0.05
         return x_recon, total_loss, recon_loss, vq_loss
