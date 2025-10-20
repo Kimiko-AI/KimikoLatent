@@ -131,13 +131,13 @@ if __name__ == "__main__":
 
     if TRAIN_DEC_ONLY:
         vae.requires_grad_(False)
-        vae.decoder.up_blocks[0].requires_grad_(True)
-        vae.decoder.up_blocks[1].requires_grad_(True)
-        vae.encoder.conv_out.requires_grad_(True)
-        vae.decoder.conv_in.requires_grad_(True)
-        vae.encoder.down_blocks[0].requires_grad_(True)
-        vae.encoder.down_blocks[1].requires_grad_(True)
-        vae.decoder.mid_block.requires_grad_(True)
+        #vae.decoder.up_blocks[0].requires_grad_(True)
+        #vae.decoder.up_blocks[1].requires_grad_(True)
+        #vae.encoder.conv_out.requires_grad_(True)
+        #vae.decoder.conv_in.requires_grad_(True)
+        #vae.encoder.down_blocks[0].requires_grad_(True)
+        #vae.encoder.down_blocks[1].requires_grad_(True)
+        #vae.decoder.mid_block.requires_grad_(True)
 
     for name, param in vae.named_parameters():
         if param.requires_grad:
