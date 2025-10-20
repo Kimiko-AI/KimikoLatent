@@ -41,7 +41,7 @@ torch.set_float32_matmul_precision('medium' )
 import torch.nn as nn
 from torchvision.transforms import InterpolationMode
 
-BASE_MODEL = "Shio-Koube/SQ-EQ-VAE"
+BASE_MODEL = "diffusers/FLUX.1-vae"
 SUB_FOLDER = None
 EPOCHS = 10
 BATCH_SIZE = 8
@@ -131,7 +131,13 @@ if __name__ == "__main__":
 
     if TRAIN_DEC_ONLY:
         vae.requires_grad_(False)
-        vae.decoder.requires_grad_(True)
+        vae.decoder.up_blocks[0].requires_grad_(True)
+        vae.decoder.up_blocks[1].requires_grad_(True)
+        vae.encoder.conv_out.requires_grad_(True)
+        vae.decoder.conv_in.requires_grad_(True)
+        vae.encoder.down_blocks[0].requires_grad_(True)
+        vae.encoder.down_blocks[1].requires_grad_(True)
+        vae.decoder.middle_blocks.requires_grad_(True)
 
     for name, param in vae.named_parameters():
         if param.requires_grad:
