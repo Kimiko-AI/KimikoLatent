@@ -41,13 +41,13 @@ torch.set_float32_matmul_precision('medium' )
 import torch.nn as nn
 from torchvision.transforms import InterpolationMode
 
-BASE_MODEL = "diffusers/FLUX.1-vae"
+BASE_MODEL = "Shio-Koube/SQ-EQ-VAE"
 SUB_FOLDER = None
 EPOCHS = 10
-BATCH_SIZE = 4
+BATCH_SIZE = 8
 GRAD_ACC = 4
 GRAD_CKPT = True
-TRAIN_DEC_ONLY = False
+TRAIN_DEC_ONLY = True
 
 LOSS_TYPE = "huber"
 LPIPS_NET = "vgg"

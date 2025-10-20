@@ -319,7 +319,7 @@ class LatentTrainer(BaseTrainer):
                 + kl_loss * self.kl_loss_weight
                 + reg_loss * self.reg_loss_weight
                 + cycle_loss * self.cycle_loss_weight
-                + swt * imags
+                + swt +  imags
         )
         adv_loss = torch.tensor(0.0, device=x.device)
         if (
@@ -356,7 +356,7 @@ class LatentTrainer(BaseTrainer):
         self.log("train/swt_loss", swt.item(), on_step=True, prog_bar=True, logger=True)
 
         self.log(
-            "train/reg_loss", reg_loss.item(), on_step=True, prog_bar=True, logger=True
+            "train/vq_loss", imags.item(), on_step=True, prog_bar=True, logger=True
         )
         self.log("train/adv_loss", adv_loss.item(), prog_bar=True, logger=True)
         self.log(
