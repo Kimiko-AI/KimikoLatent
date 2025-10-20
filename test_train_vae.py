@@ -43,11 +43,11 @@ from torchvision.transforms import InterpolationMode
 
 BASE_MODEL = "diffusers/FLUX.1-vae"
 SUB_FOLDER = None
-EPOCHS = 2
-BATCH_SIZE = 8
+EPOCHS = 10
+BATCH_SIZE = 4
 GRAD_ACC = 4
 GRAD_CKPT = True
-TRAIN_DEC_ONLY = True
+TRAIN_DEC_ONLY = False
 
 LOSS_TYPE = "huber"
 LPIPS_NET = "vgg"
@@ -138,9 +138,7 @@ if __name__ == "__main__":
             print(name, param.shape)
 
     vae.get_last_layer = lambda: vae.decoder.conv_out.weight
-    LatentTrainer.load_from_checkpoint(
-        "The-Final-VAE/yxfnmgen/checkpoints/epoch=2-step=28134.ckpt", vae=vae, map_location="cpu", strict=False
-    )
+
     vae.compile()
     trainer_module = LatentTrainer(
         vae=vae,
