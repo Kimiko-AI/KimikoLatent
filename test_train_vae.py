@@ -47,7 +47,7 @@ EPOCHS = 10
 BATCH_SIZE = 8
 GRAD_ACC = 4
 GRAD_CKPT = True
-TRAIN_DEC_ONLY = False
+TRAIN_DEC_ONLY = True
 
 LOSS_TYPE = "huber"
 LPIPS_NET = "vgg"
@@ -128,9 +128,13 @@ if __name__ == "__main__":
         )
         vae.save_pretrained("./models/Kohaku-VAE")
 
+    LatentTrainer.load_from_checkpoint(
+        r"/root/ChatError/KimikoLatent/The-Final-VAE/1qlayj6g/checkpoints/epoch=3-step=25000.ckpt", vae=vae, map_location="cpu", strict=False
+    )
 
     if TRAIN_DEC_ONLY:
         vae.requires_grad_(False)
+        vae.decoder.requires_grad_(True)
         #vae.decoder.up_blocks[0].requires_grad_(True)
         #vae.decoder.up_blocks[1].requires_grad_(True)
         #vae.encoder.conv_out.requires_grad_(True)
