@@ -278,13 +278,14 @@ class LatentTrainer(BaseTrainer):
 
         for i in range(batch_size):
             # Randomly choose start channel
-            start_ch = random.randint(1, num_channels - 1)
+            #start_ch = random.randint(1, num_channels - 1)
+            start_ch = 32
             # Mask from start_ch to end
             mask[i, start_ch:, :, :] = 0
             # Record the start index
             start_channels.append(start_ch)
 
-        latent = latent * mask
+        #latent = latent * mask
 
         x_rec = self.vae.decode(latent)
         if hasattr(x_rec, "sample"):
