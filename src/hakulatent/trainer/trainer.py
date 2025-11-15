@@ -284,7 +284,7 @@ class LatentTrainer(BaseTrainer):
         for i in range(batch_size):
             # Randomly choose start channel
             #start_ch = random.randint(1, num_channels - 1)
-            start_ch = 128
+            start_ch = 32
             # Mask from start_ch to end
             mask[i, start_ch:, :, :] = 0
             # Record the start index
