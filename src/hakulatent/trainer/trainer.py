@@ -221,7 +221,7 @@ class LatentTrainer(BaseTrainer):
             self.train_params = [self.train_params, self.adv_loss.parameters()]
             self.ema_d_loss = 0
             self.start_iter = self.adv_loss.start_iter - 1
-        univariate_test = lejepa.univariate.EppsPulley(num_points=17)
+        univariate_test = lejepa.univariate.EppsPulley(n_points=17)
         self.lejepa_loss = lejepa.multivariate.SlicingUnivariateTest(
             univariate_test=univariate_test,
             num_slices=1024
