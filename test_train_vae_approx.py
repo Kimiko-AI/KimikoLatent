@@ -42,7 +42,7 @@ torch.set_float32_matmul_precision('medium' )
 import torch.nn as nn
 from torchvision.transforms import InterpolationMode
 
-BASE_MODEL = "mit-han-lab/dc-ae-f32c32-sana-1.1-diffusers"
+BASE_MODEL = "Shio-Koube/DCAE-f32128ch"
 SUB_FOLDER = None
 EPOCHS = 10
 BATCH_SIZE = 2
@@ -96,7 +96,13 @@ if __name__ == "__main__":
     )
     # loader warmup
     next(iter(loader))
-    vae: AutoencoderDC = AutoencoderDC.from_pretrained(BASE_MODEL, subfolder=SUB_FOLDER, ignore_mismatched_sizes=True)
+    vae: AutoencoderDC = AutoencoderDC.from_pretrained(BASE_MODEL, subfolder=SUB_FOLDER, device = "cpu")
+    vae.encoder.conv_out.to_empty(device="cpu")
+    torch.nn.init.kaiming_normal_(vae.encoder.conv_out.weight, mode="fan_out", nonlinearity="relu")
+
+    vae.decoder.conv_in.to_empty(device="cpu")
+    torch.nn.init.kaiming_normal_(vae.decoder.conv_in.weight, mode="fan_out", nonlinearity="relu")
+
     if GRAD_CKPT:
         vae.enable_gradient_checkpointing()
 

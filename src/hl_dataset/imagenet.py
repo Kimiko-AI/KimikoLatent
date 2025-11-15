@@ -18,12 +18,12 @@ class ImageNetDataset(data.Dataset):
         self.shared_transform = transforms.Compose([
             transforms.RandomHorizontalFlip(),
             transforms.RandomVerticalFlip(),
-            transforms.RandomResizedCrop((512, 512), scale=(0.5, 1.0), interpolation=transforms.InterpolationMode.BICUBIC)
+            transforms.RandomResizedCrop((256, 256), scale=(0.5, 1.0), interpolation=transforms.InterpolationMode.BICUBIC)
         ])
 
         # Post-processing for train
         self.train_post = transforms.Compose([
-            transforms.Resize(256),
+            #transforms.Resize(256),
             transforms.ToTensor(),
         ])
 

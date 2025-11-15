@@ -269,7 +269,7 @@ class LatentTrainer(BaseTrainer):
             dist = dist.latent_dist
         dist.deterministic = False
 
-        latent = dist
+        latent = dist.latent
         origin = latent.clone()
 
         if self.transform is not None and random.random() < self.transform_prob:
@@ -314,8 +314,9 @@ class LatentTrainer(BaseTrainer):
 
             cycle_loss = F.mse_loss(latent_cycle2, latent_cycle)
 
-        kl_loss = torch.sum(dist.kl()) / x_rec.numel()
-        jepa_loss = self.lejepa_loss(dist.view(x.shape[0], -1))
+        #kl_loss = torch.sum(dist.kl()) / x_rec.numel()
+        jepa_loss = self.lejepa_loss(dist.latent.reshape(x.shape[0], -1))
+        kl_loss = jepa_loss
         reg_loss = torch.tensor(0.0, device=x.device)
         swt = self.swt(x_rec, x)
         if self.latent_loss is not None:
@@ -416,8 +417,11 @@ class LatentTrainer(BaseTrainer):
         x = x.float()[:8]
         x_rec = x_rec.float()[:8, : x.size(1)]
         latent = latent.float()[:8]
-        latent_rgb = pca_to_rgb(latent)
-
+        try:
+            latent_rgb = pca_to_rgb(latent)
+        except Exception as e:
+            latent_rgb =  x
+            print(e)
         x = F.interpolate(x, size=org_x.shape[2:], mode="bicubic")
         x_rec = F.interpolate(x_rec, size=org_x.shape[2:], mode="bicubic")
         latent_rgb = F.interpolate(latent_rgb, size=org_x.shape[2:], mode="nearest")
