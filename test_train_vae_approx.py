@@ -42,7 +42,7 @@ torch.set_float32_matmul_precision('medium' )
 import torch.nn as nn
 from torchvision.transforms import InterpolationMode
 
-BASE_MODEL = "Shio-Koube/DCAE-f32128ch'
+BASE_MODEL = "Shio-Koube/DCAE-f32128ch"
 SUB_FOLDER = None
 EPOCHS = 10
 BATCH_SIZE = 2
