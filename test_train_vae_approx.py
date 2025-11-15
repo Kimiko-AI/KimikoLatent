@@ -97,11 +97,6 @@ if __name__ == "__main__":
     # loader warmup
     next(iter(loader))
     vae: AutoencoderDC = AutoencoderDC.from_pretrained(BASE_MODEL, subfolder=SUB_FOLDER, device = "cpu")
-    vae.encoder.conv_out.to_empty(device="cpu")
-    torch.nn.init.kaiming_normal_(vae.encoder.conv_out.weight, mode="fan_out", nonlinearity="relu")
-
-    vae.decoder.conv_in.to_empty(device="cpu")
-    torch.nn.init.kaiming_normal_(vae.decoder.conv_in.weight, mode="fan_out", nonlinearity="relu")
 
     if GRAD_CKPT:
         vae.enable_gradient_checkpointing()
