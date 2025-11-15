@@ -315,8 +315,8 @@ class LatentTrainer(BaseTrainer):
             cycle_loss = F.mse_loss(latent_cycle2, latent_cycle)
 
         #kl_loss = torch.sum(dist.kl()) / x_rec.numel()
-        #jepa_loss = self.lejepa_loss(dist.latent.reshape(x.shape[0], -1))
-        kl_loss = torch.tensor(0.0, device=x.device)
+        jepa_loss = self.lejepa_loss(dist.latent.reshape(x.shape[0], -1))
+        kl_loss = jepa_loss
         reg_loss = torch.tensor(0.0, device=x.device)
         swt = self.swt(x_rec, x)
         if self.latent_loss is not None:
