@@ -13,6 +13,7 @@ from ..losses.vf_loss import VFLoss
 from diffusers import (
     AutoencoderKL,
 )
+import lejepa
 import random
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from anyschedule import AnySchedule
@@ -21,7 +22,7 @@ from ..utils.latent import pca_to_rgb
 from ..transform import LatentTransformBase
 from ..losses.adversarial import AdvLoss
 from ..losses.wavelet_loss import SWTLoss
-#from ..losses.vf_loss import VFLoss
+from ..losses.vf_loss import VFLoss
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -168,7 +169,7 @@ class LatentTrainer(BaseTrainer):
             vae.requires_grad_(False).eval()
         self.vae = vae
         self.lycoris_model = lycoris_model
-        #self.vf_loss = VFLoss()
+        self.vf_loss = VFLoss()
         self.img_deprocess = img_deprocess or (lambda x: x)
         self.transform = latent_transform
         self.transform_prob = transform_prob
@@ -177,9 +178,9 @@ class LatentTrainer(BaseTrainer):
         self.latent_loss = latent_loss
         self.recon_loss = recon_loss
         self.swt = SWTLoss(loss_weight_ll=0.05, loss_weight_lh=0.025, loss_weight_hl=0.025, loss_weight_hh=0.02)
-        #self.vf_loss = VFLoss()
-        #self.vf_loss.proj.reset_parameters()
-        #self.vf_loss.proj.requires_grad_(True)
+        self.vf_loss = VFLoss()
+        self.vf_loss.proj.reset_parameters()
+        self.vf_loss.proj.requires_grad_(True)
         self.adv_loss = adv_loss
         if isinstance(loss_weights, dict):
             self.recon_loss_weight = loss_weights.get("recon", 1.0)
@@ -220,7 +221,11 @@ class LatentTrainer(BaseTrainer):
             self.train_params = [self.train_params, self.adv_loss.parameters()]
             self.ema_d_loss = 0
             self.start_iter = self.adv_loss.start_iter - 1
-
+        univariate_test = lejepa.univariate.EppsPulley(num_points=17)
+        self.lejepa_loss = lejepa.multivariate.SlicingUnivariateTest(
+            univariate_test=univariate_test,
+            num_slices=1024
+        )
     def on_train_epoch_start(self):
         if isinstance(self.grad_acc, dict):
             self.current_grad_acc = self.grad_acc.get(
@@ -264,7 +269,7 @@ class LatentTrainer(BaseTrainer):
             dist = dist.latent_dist
         dist.deterministic = False
 
-        latent = dist.sample()
+        latent = dist
         origin = latent.clone()
 
         if self.transform is not None and random.random() < self.transform_prob:
@@ -279,7 +284,7 @@ class LatentTrainer(BaseTrainer):
         for i in range(batch_size):
             # Randomly choose start channel
             #start_ch = random.randint(1, num_channels - 1)
-            start_ch = 32
+            start_ch = 128
             # Mask from start_ch to end
             mask[i, start_ch:, :, :] = 0
             # Record the start index
@@ -298,8 +303,8 @@ class LatentTrainer(BaseTrainer):
 
     def recon_step(self, x, x_rec, latent, dist, g_opt, g_sch, batch_idx, grad_acc, imags):
         recon_loss = self.recon_loss(x, x_rec)
-        #vf_loss = self.vf_loss(latent, imags)
-        vf_loss = torch.tensor(0.0, device=x.device)
+        vf_loss = self.vf_loss(latent, imags)
+        #vf_loss = torch.tensor(0.0, device=x.device)
         # --- Cycle loss ---
         cycle_loss = torch.tensor(0.0, device=x.device)
         if self.cycle_loss_weight > 0:
@@ -310,13 +315,15 @@ class LatentTrainer(BaseTrainer):
             cycle_loss = F.mse_loss(latent_cycle2, latent_cycle)
 
         kl_loss = torch.sum(dist.kl()) / x_rec.numel()
+        jepa_loss = self.lejepa_loss(dist.view(x.shape[0], -1))
         reg_loss = torch.tensor(0.0, device=x.device)
         swt = self.swt(x_rec, x)
         if self.latent_loss is not None:
             reg_loss += self.latent_loss(latent)
         loss = (
                 recon_loss * self.recon_loss_weight
-                + kl_loss * self.kl_loss_weight
+                #+ kl_loss * self.kl_loss_weight
+                + jepa_loss * self.kl_loss_weight
                 + reg_loss * self.reg_loss_weight
                 + cycle_loss * self.cycle_loss_weight
                 + swt * 0.1 + vf_loss )

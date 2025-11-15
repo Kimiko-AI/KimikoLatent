@@ -20,31 +20,48 @@ if __name__ == "__main__":
     from diffusers import AutoencoderKL
     from convnext_perceptual_loss import ConvNextType
 
-    from hl_dataset.imagenet import ImageNetDataset
-    from hakulatent.trainer import LatentTrainer
-    from hakulatent.losses import AdvLoss, ReconLoss
-    from hakulatent.models.approx import LatentApproxDecoder
+    from src.hl_dataset.imagenet import ImageNetDataset
+    from src.hakulatent.transform import (
+        LatentTransformCompose,
+        LatentTransformSwitch,
+        RotationTransform,
+        ScaleDownTransform,
+        ScaleUpCropTransform,
+        CropTransform,
+        RandomAffineTransform,
+        BlendingTransform,
+    )
+    from src.hakulatent.trainer import LatentTrainer
+    from src.hakulatent.losses import AdvLoss, ReconLoss, KeplerQuantizerRegLoss
+    from src.hakulatent.extune.linear import ScaleLinear, ScaleConv2d
+    from diffusers import AutoencoderDC
 else:
     # This if-else can speedup multi-worker dataloader in windows
     print("Subprocess Starting:", __name__)
+torch.set_float32_matmul_precision('medium' )
+import torch.nn as nn
+from torchvision.transforms import InterpolationMode
 
-
-BASE_MODEL = "KBlueLeaf/EQ-SDXL-VAE"
+BASE_MODEL = "mit-han-lab/dc-ae-f32c32-sana-1.1-diffusers"
 SUB_FOLDER = None
-EPOCHS = 1
-BATCH_SIZE = 32
-GRAD_ACC = 1
+EPOCHS = 10
+BATCH_SIZE = 2
+GRAD_ACC = 4
 GRAD_CKPT = False
+TRAIN_DEC_ONLY = False
 
-LOSS_TYPE = "gnll"
-LPIPS_NET = None
-USE_CONVNEXT = False
-ADV_START_ITER = 5000
+LOSS_TYPE = "huber"
+LPIPS_NET = "vgg"
+USE_CONVNEXT = True
+ADV_START_ITER = 0
 
-NUM_WORKERS = 16
-SIZE = 512
-LR = 1e-5
-DLR = 5e-3
+NUM_WORKERS = 8
+SIZE = 256
+LR = 1e-4
+DLR = 1e-4
+
+NEW_LATENT_DIM = None
+PRETRAIN = False
 
 
 def process(x):
@@ -59,7 +76,7 @@ if __name__ == "__main__":
     split = "train"
     transform = Compose(
         [
-            Resize(SIZE),
+            Resize(512,  interpolation=InterpolationMode.BICUBIC),
             RandomCrop((SIZE, SIZE)),
             RandomHorizontalFlip(),
             RandomVerticalFlip(),
@@ -77,27 +94,59 @@ if __name__ == "__main__":
         num_workers=NUM_WORKERS,
         persistent_workers=bool(NUM_WORKERS),
     )
+    # loader warmup
     next(iter(loader))
-
-    vae: AutoencoderKL = AutoencoderKL.from_pretrained(BASE_MODEL, subfolder=SUB_FOLDER)
+    vae: AutoencoderDC = AutoencoderDC.from_pretrained(BASE_MODEL, subfolder=SUB_FOLDER, ignore_mismatched_sizes=True)
     if GRAD_CKPT:
         vae.enable_gradient_checkpointing()
-    vae = vae.eval().requires_grad_(False)
-    vae.encoder = torch.compile(vae.encoder)
-    vae.decoder = None
-    vae.post_quant_conv = None
 
-    approx = LatentApproxDecoder(
-        latent_dim=vae.config.latent_channels,
-        out_channels=3,
-        shuffle=2,
-        # post_conv=False,
-        logvar=True,
-    )
-    vae.decoder = approx
-    vae.decode = lambda x: approx(x)
-    vae.get_last_layer = lambda: approx.last_layer().weight
+    if NEW_LATENT_DIM:
+        vae.config.latent_channels = NEW_LATENT_DIM
+        vae.encoder.conv_out = ScaleConv2d(
+            "",
+            vae.encoder.conv_out,
+            vae.encoder.conv_out.in_channels,
+            NEW_LATENT_DIM * 2,
+        ).generate_module()
+        vae.decoder.conv_in = ScaleConv2d(
+            "", vae.decoder.conv_in, NEW_LATENT_DIM, vae.decoder.conv_in.out_channels
+        ).generate_module()
+        vae.quant_conv = ScaleConv2d(
+            "", vae.quant_conv, NEW_LATENT_DIM * 2, NEW_LATENT_DIM * 2, inputs_groups=[]
+        ).generate_module()
+        vae.post_quant_conv = ScaleConv2d(
+            "", vae.post_quant_conv, NEW_LATENT_DIM, NEW_LATENT_DIM
+        ).generate_module()
 
+    if PRETRAIN:
+        vae = AutoencoderKL(
+            down_block_types=["DownEncoderBlock2D"] * 4,
+            block_out_channels=[128, 256, 512, 512],
+            latent_channels=NEW_LATENT_DIM,
+            up_block_types=["UpDecoderBlock2D"] * 4,
+            layers_per_block=2,
+        )
+        vae.save_pretrained("./models/Kohaku-VAE")
+
+
+    if TRAIN_DEC_ONLY:
+        vae.requires_grad_(False)
+        vae.decoder.requires_grad_(True)
+        #vae.decoder.up_blocks[0].requires_grad_(True)
+        #vae.decoder.up_blocks[1].requires_grad_(True)
+        #vae.encoder.conv_out.requires_grad_(True)
+        #vae.decoder.conv_in.requires_grad_(True)
+        #vae.encoder.down_blocks[0].requires_grad_(True)
+        #vae.encoder.down_blocks[1].requires_grad_(True)
+        #vae.decoder.mid_block.requires_grad_(True)
+
+    for name, param in vae.named_parameters():
+        if param.requires_grad:
+            print(name, param.shape)
+
+    vae.get_last_layer = lambda: vae.decoder.conv_out.weight
+
+    vae.compile()
     trainer_module = LatentTrainer(
         vae=vae,
         recon_loss=ReconLoss(
@@ -105,56 +154,69 @@ if __name__ == "__main__":
             lpips_net=LPIPS_NET,
             convnext_type=ConvNextType.TINY if USE_CONVNEXT else None,
             convnext_kwargs={
-                "feature_layers": [10, 12, 14],
+                "feature_layers": [2, 6, 10, 14],
                 "use_gram": False,
                 "input_range": (-1, 1),
                 "device": "cuda",
             },
             loss_weights={
-                LOSS_TYPE: 1.0,
-                "lpips": 0.5,
-                "convnext": 1.0,
+                LOSS_TYPE: 0.25,
+                "lpips": 0.3,
+                "convnext": 0.45,
             },
         ),
-        # adv_loss=AdvLoss(start_iter=ADV_START_ITER, n_layers=3),
+        latent_loss=KeplerQuantizerRegLoss(
+            embed_dim=vae.config.latent_channels,
+            scale=1,
+            partitions=1,
+            num_embed=1024,
+            beta=0.25,
+            use_kepler_loss=False,
+        ),
+        #adv_loss=AdvLoss(start_iter=ADV_START_ITER, disc_loss="vanilla", n_layers=4),
         img_deprocess=deprocess,
         log_interval=100,
         loss_weights={
-            "recon": 1.0,
-            "adv": 0,
-            "kl": 0,
+            "recon": 1,
+            "adv": 0.25,
+            "kl": 0.1,
+            "reg": 0,
+            "cycle": 0,
+
         },
-        name="SDXL-VAE-approx",
+        name="DC-AE2",
         lr=LR,
         lr_disc=DLR,
         optimizer="torch.optim.AdamW",
-        opt_configs={"betas": (0.9, 0.98)},
+        opt_configs={"betas": (0.9, 0.98), "weight_decay": 1e-2},
         lr_sch_configs={
             "lr": {
-                "end": len(loader) * EPOCHS // GRAD_ACC,
+                "end": EPOCHS * (len(loader) + 1) // GRAD_ACC,
                 "value": 1.0,
                 "min_value": 0.1,
                 "mode": "cosine",
-                "warmup": 0,
+                "warmup": 1000,
             }
         },
         grad_acc=GRAD_ACC,
     )
 
     logger = WandbLogger(
-        project="HakuLatent",
-        name="EQ-SDXL-VAE-approx",
-        # offline=True,
+        project="The-Final-VAE",
+        name="Decoder_tune",
+        # offline=True
     )
     trainer = pl.Trainer(
         logger=logger,
-        devices=1,
+        devices="auto",
         max_epochs=EPOCHS,
-        precision="16-mixed",
+        precision="bf16-mixed",
         callbacks=[
-            ModelCheckpoint(every_n_train_steps=1000),
+            ModelCheckpoint(every_n_train_steps=500),
+            ModelCheckpoint(every_n_epochs = 1, save_on_train_epoch_end = True),
             LearningRateMonitor(logging_interval="step"),
         ],
         log_every_n_steps=1,
+        #strategy='ddp_find_unused_parameters_true'
     )
     trainer.fit(trainer_module, loader)
