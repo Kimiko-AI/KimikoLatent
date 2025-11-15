@@ -45,7 +45,7 @@ class VFLoss(nn.Module):
         """
         feats = self.dinov2.forward_features(x)
         feats, cls = feats[:, 5:], feats[:, 0]
-        feats = feats.reshape(feats.size(0), 16, 16, 1024).permute(0, 3, 1, 2)
+        feats = feats.reshape(feats.size(0), 16, 16, 1024).permute(0, 3, 1, 2).contiguous()
         return feats, cls
 
     def forward(self, z, img):

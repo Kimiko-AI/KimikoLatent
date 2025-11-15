@@ -45,7 +45,7 @@ from torchvision.transforms import InterpolationMode
 BASE_MODEL = "Shio-Koube/DCAE-f32128ch"
 SUB_FOLDER = None
 EPOCHS = 10
-BATCH_SIZE = 2
+BATCH_SIZE = 4
 GRAD_ACC = 4
 GRAD_CKPT = False
 TRAIN_DEC_ONLY = False
