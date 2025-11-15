@@ -12,6 +12,6 @@ toml
 PyWavelets
 wandb
 timm
-lejepa
+git+https://github.com/rbalestr-lab/lejepa
 git+https://github.com/KohakuBlueleaf/AnySchedule
 git+https://github.com/sypsyp97/convnext_perceptual_loss
