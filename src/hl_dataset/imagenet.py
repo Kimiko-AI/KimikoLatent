@@ -10,7 +10,7 @@ class ImageNetDataset(data.Dataset):
         self.max_len = max_len
 
         self.dataset = load_dataset(
-            "animetimm/danbooru-wdtagger-v4-w640-ws-1M",
+            "/root/ChatError/Dan_dataset/",
             split=split
         )
 
