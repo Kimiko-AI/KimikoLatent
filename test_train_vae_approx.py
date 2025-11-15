@@ -42,7 +42,7 @@ torch.set_float32_matmul_precision('medium' )
 import torch.nn as nn
 from torchvision.transforms import InterpolationMode
 
-BASE_MODEL = "mit-han-lab/dc-ae-f32c32-sana-1.1-diffusers"
+BASE_MODEL = "Shio-Koube/DCAE-f32128ch'
 SUB_FOLDER = None
 EPOCHS = 10
 BATCH_SIZE = 2
@@ -211,7 +211,7 @@ if __name__ == "__main__":
         logger=logger,
         devices="auto",
         max_epochs=EPOCHS,
-        precision="bf16-mixed",
+        precision="bf16-true",
         callbacks=[
             ModelCheckpoint(every_n_train_steps=500),
             ModelCheckpoint(every_n_epochs = 1, save_on_train_epoch_end = True),
