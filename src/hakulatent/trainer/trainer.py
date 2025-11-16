@@ -387,7 +387,7 @@ class LatentTrainer(BaseTrainer):
             cycle_loss = F.mse_loss(latent_cycle2, latent_cycle)
 
         #kl_loss = torch.sum(dist.kl()) / x_rec.numel()
-        jepa_loss = self.lejepa_loss(dist.latent.reshape(x.shape[0], -1))
+        jepa_loss = self.lejepa_loss(latent.reshape(x.shape[0], -1))
         kl_loss = jepa_loss
         reg_loss = self.convnext_criterion(x, x_rec)
         swt = self.swt(x_rec, x)
