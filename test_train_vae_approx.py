@@ -97,7 +97,9 @@ if __name__ == "__main__":
     # loader warmup
     next(iter(loader))
     vae: AutoencoderDC = AutoencoderDC.from_pretrained(BASE_MODEL, subfolder=SUB_FOLDER, device = "cpu")
-
+    LatentTrainer.load_from_checkpoint(
+        r"/root/ChatError/KimikoLatent/The-Final-VAE/nde4gt9w/checkpoints/epoch=0-step=18500.ckpt", vae=vae, map_location="cpu", strict=False
+    )
     if GRAD_CKPT:
         vae.enable_gradient_checkpointing()
 

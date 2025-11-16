@@ -26,6 +26,48 @@ from ..losses.vf_loss import VFLoss
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import timm
+
+
+class ConvNeXtFeatureLoss:
+    def __init__(self, model_name="convnext_large.dinov3_lvd1689m", device="cpu"):
+        self.device = device
+
+        self.model = timm.create_model(
+            model_name,
+            pretrained=True,
+            features_only=True
+        ).to(device).eval()
+        for p in self.model.parameters():
+          p.requires_grad = False
+
+        self.imagenet_mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 3, 1, 1)
+        self.imagenet_std  = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 3, 1, 1)
+
+    def normalize_from_minus1_1(self, x):
+        x = (x + 1) / 2                     # back to [0,1]
+        return (x - self.imagenet_mean) / self.imagenet_std
+
+    def extract_all_features(self, x):
+        return self.model(x)
+
+    def feature_loss(self, f1, f2):
+        a = F.normalize(f1, dim=1)
+        b = F.normalize(f2, dim=1)
+        return F.mse_loss(a, b)
+
+    def loss_from_tensors(self, x1, x2):
+        x1 = self.normalize_from_minus1_1(x1.to(self.device))
+        x2 = self.normalize_from_minus1_1(x2.to(self.device))
+
+        feats1 = self.extract_all_features(x1)
+        feats2 = self.extract_all_features(x2)
+
+        total = 0.0
+        for a, b in zip(feats1, feats2):
+            total = total + self.feature_loss(a, b)
+
+        return total
 
 
 class BaseTrainer(pl.LightningModule):
@@ -174,6 +216,7 @@ class LatentTrainer(BaseTrainer):
         self.transform = latent_transform
         self.transform_prob = transform_prob
         self.log_interval = log_interval
+        self.convnext_criterion = ConvNeXtFeatureLoss()
 
         self.latent_loss = latent_loss
         self.recon_loss = recon_loss
@@ -317,7 +360,7 @@ class LatentTrainer(BaseTrainer):
         #kl_loss = torch.sum(dist.kl()) / x_rec.numel()
         #jepa_loss = self.lejepa_loss(dist.latent.reshape(x.shape[0], -1))
         kl_loss = torch.tensor(0.0, device=x.device)
-        reg_loss = torch.tensor(0.0, device=x.device)
+        reg_loss = self.convnext_criterion(x, x_rec)
         swt = self.swt(x_rec, x)
         if self.latent_loss is not None:
             reg_loss += self.latent_loss(latent)
@@ -325,7 +368,7 @@ class LatentTrainer(BaseTrainer):
                 recon_loss * self.recon_loss_weight
                 + kl_loss * self.kl_loss_weight
                 #+ jepa_loss * self.kl_loss_weight
-                + reg_loss * self.reg_loss_weight
+                + reg_loss
                 + cycle_loss * self.cycle_loss_weight
                 + swt * 0.1 + vf_loss )
         adv_loss = torch.tensor(0.0, device=x.device)
