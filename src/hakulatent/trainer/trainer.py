@@ -338,7 +338,7 @@ class LatentTrainer(BaseTrainer):
         for i in range(batch_size):
             start_ch = 32
             mask[i, start_ch:, :, :] = 0
-            start_channels.append(std_per_channel.mean().detach().numpy())
+            start_channels.append(std_per_channel.mean().detach().cpu().numpy())
 
         # latent = latent * mask   # optional depending on your logic
 
