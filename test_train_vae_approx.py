@@ -176,7 +176,7 @@ if __name__ == "__main__":
             beta=0.25,
             use_kepler_loss=False,
         ),
-        adv_loss=AdvLoss(start_iter=ADV_START_ITER, disc_loss="vanilla", n_layers=4),
+        #adv_loss=AdvLoss(start_iter=ADV_START_ITER, disc_loss="vanilla", n_layers=4),
         img_deprocess=deprocess,
         log_interval=100,
         loss_weights={
@@ -213,13 +213,13 @@ if __name__ == "__main__":
         logger=logger,
         devices="auto",
         max_epochs=EPOCHS,
-        precision="bf16-true",
+        precision="bf16-mixed",
         callbacks=[
             ModelCheckpoint(every_n_train_steps=500),
             ModelCheckpoint(every_n_epochs = 1, save_on_train_epoch_end = True),
             LearningRateMonitor(logging_interval="step"),
         ],
         log_every_n_steps=1,
-        #strategy='ddp_find_unused_parameters_true'
+        strategy='ddp_find_unused_parameters_true'
     )
     trainer.fit(trainer_module, loader)
