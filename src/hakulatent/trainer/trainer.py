@@ -368,16 +368,16 @@ class LatentTrainer(BaseTrainer):
             cycle_loss = F.mse_loss(latent_cycle2, latent_cycle)
 
         #kl_loss = torch.sum(dist.kl()) / x_rec.numel()
-        jepa_loss = self.lejepa_loss(dist.latent.reshape(x.shape[0], -1))
-        kl_loss = jepa_loss
+        #jepa_loss = self.lejepa_loss(dist.latent.reshape(x.shape[0], -1))
+        kl_loss = torch.tensor(0.0, device=x.device)
         reg_loss = self.convnext_criterion(x, x_rec)
         swt = self.swt(x_rec, x)
         if self.latent_loss is not None:
             reg_loss += self.latent_loss(latent)
         loss = (
                 recon_loss * self.recon_loss_weight
-                #+ kl_loss * self.kl_loss_weight
-                + jepa_loss * 0.01
+                + kl_loss * self.kl_loss_weight
+                #+ jepa_loss * 0.01
                 + reg_loss * 0.1
                 + cycle_loss * self.cycle_loss_weight
                 + swt * 0.1 + vf_loss )

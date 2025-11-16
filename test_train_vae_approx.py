@@ -213,7 +213,7 @@ if __name__ == "__main__":
         logger=logger,
         devices="auto",
         max_epochs=EPOCHS,
-        precision="bf16-mixed",
+        precision="bf16-true",
         callbacks=[
             ModelCheckpoint(every_n_train_steps=500),
             ModelCheckpoint(every_n_epochs = 1, save_on_train_epoch_end = True),
