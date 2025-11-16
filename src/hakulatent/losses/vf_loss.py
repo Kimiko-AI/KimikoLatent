@@ -58,7 +58,7 @@ class VFLoss(nn.Module):
         f_patches, f_cls = self.get_dinov2_features(img)
 
         z_proj_patches = self.proj(z)
-        #z_proj_patches = self.pixel_shuffle(z_proj_patches)
+        z_proj_patches = self.pixel_shuffle(z_proj_patches)
         f_patches_flat = f_patches.flatten(2)
         z_proj_patches_flat = z_proj_patches.flatten(2)
 
