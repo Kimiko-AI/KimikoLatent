@@ -360,7 +360,7 @@ class LatentTrainer(BaseTrainer):
         #kl_loss = torch.sum(dist.kl()) / x_rec.numel()
         #jepa_loss = self.lejepa_loss(dist.latent.reshape(x.shape[0], -1))
         kl_loss = torch.tensor(0.0, device=x.device)
-        reg_loss = self.convnext_criterion(x, x_rec)
+        reg_loss = self.convnext_criterion.loss_from_tensors(x, x_rec)
         swt = self.swt(x_rec, x)
         if self.latent_loss is not None:
             reg_loss += self.latent_loss(latent)
