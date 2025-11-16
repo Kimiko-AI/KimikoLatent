@@ -370,7 +370,7 @@ class LatentTrainer(BaseTrainer):
         loss = (
                 recon_loss * self.recon_loss_weight
                 #+ kl_loss * self.kl_loss_weight
-                + jepa_loss * 0.1
+                + jepa_loss * 0.01
                 + reg_loss
                 + cycle_loss * self.cycle_loss_weight
                 + swt * 0.1 + vf_loss )
@@ -405,7 +405,7 @@ class LatentTrainer(BaseTrainer):
         self.log(
             "train/kl_loss", kl_loss.item(), on_step=True, prog_bar=True, logger=True
         )
-        self.log("train/cycle_loss", cycle_loss.item(), on_step=True, prog_bar=True, logger=True)
+        self.log("train/reg_loss", reg_loss.item(), on_step=True, prog_bar=True, logger=True)
         self.log("train/swt_loss", swt.item(), on_step=True, prog_bar=True, logger=True)
 
         self.log(
