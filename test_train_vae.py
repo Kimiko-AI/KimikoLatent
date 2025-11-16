@@ -128,9 +128,9 @@ if __name__ == "__main__":
         )
         vae.save_pretrained("./models/Kohaku-VAE")
 
-    LatentTrainer.load_from_checkpoint(
-        r"/root/ChatError/KimikoLatent/The-Final-VAE/1qlayj6g/checkpoints/epoch=3-step=25000.ckpt", vae=vae, map_location="cpu", strict=False
-    )
+    #LatentTrainer.load_from_checkpoint(
+    #    r"/root/ChatError/KimikoLatent/The-Final-VAE/1qlayj6g/checkpoints/epoch=3-step=25000.ckpt", vae=vae, map_location="cpu", strict=False
+    #)
 
     if TRAIN_DEC_ONLY:
         vae.requires_grad_(False)

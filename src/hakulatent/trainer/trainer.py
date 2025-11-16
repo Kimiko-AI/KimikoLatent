@@ -333,26 +333,44 @@ class LatentTrainer(BaseTrainer):
 
         mask = torch.ones_like(latent)
         start_channels = []  # store only start indices
+        std_per_channel = latent.std(dim=(0, 2, 3), unbiased=False)
 
         for i in range(batch_size):
-            # Randomly choose start channel
-            #start_ch = random.randint(1, num_channels - 1)
             start_ch = 32
-            # Mask from start_ch to end
             mask[i, start_ch:, :, :] = 0
-            # Record the start index
-            start_channels.append(start_ch)
+            start_channels.append(std_per_channel.mean().detach().numpy())
 
-        #latent = latent * mask
+        # latent = latent * mask   # optional depending on your logic
 
-        x_rec = self.vae.decode(latent)
+        # ----------------------------------------------------------
+        # Per-channel noise-augmented decoding
+        # ----------------------------------------------------------
+
+        # Compute per-channel std across (batch, height, width)
+        # Shape: [C]
+        std_per_channel = latent.std(dim=(0, 2, 3), unbiased=False)
+
+        # Choose multiplier k
+        k = 0.1  # adjust based on validation as discussed
+
+        # Per-channel sigma: shape [1, C, 1, 1]
+        sigma = (k * std_per_channel).view(1, -1, 1, 1)
+
+        # Broadcast to batch and sample noise
+        noise = torch.randn_like(latent) * sigma
+
+        latent_noisy = latent + noise
+
+        # ----------------------------------------------------------
+
+        x_rec = self.vae.decode(latent_noisy)
         if hasattr(x_rec, "sample"):
             x_rec = x_rec.sample
+
         if x.shape[2:] != x_rec.shape[2:]:
             x = F.interpolate(x, size=x_rec.shape[2:], mode="bicubic")
 
-        # Return the start indices instead of lists or tensor mask
-        return origin, x, x_rec, latent, dist, start_channels
+        return origin, x, x_rec, latent_noisy, dist, start_channels
 
     def recon_step(self, x, x_rec, latent, dist, g_opt, g_sch, batch_idx, grad_acc, imags):
         recon_loss = self.recon_loss(x, x_rec)
