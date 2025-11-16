@@ -73,8 +73,6 @@ class ConvNeXtPerceptualLoss(nn.Module):
         with torch.no_grad():
             feats1 = self.model(x1)
             feats2 = self.model(x2)
-
-
         # Weighted sum over layers: shallower layers get higher weight
         weights = [1.0 / (2 ** i) for i in range(len(feats1))]
 
@@ -228,7 +226,7 @@ class LatentTrainer(BaseTrainer):
         self.transform = latent_transform
         self.transform_prob = transform_prob
         self.log_interval = log_interval
-        self.convnext_criterion = ConvNeXtFeatureLoss()
+        self.convnext_criterion = ConvNeXtPerceptualLoss()
 
         self.latent_loss = latent_loss
         self.recon_loss = recon_loss
