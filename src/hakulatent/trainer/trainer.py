@@ -234,6 +234,7 @@ class LatentTrainer(BaseTrainer):
         self.vf_loss = VFLoss()
         self.vf_loss.proj.reset_parameters()
         self.vf_loss.proj.requires_grad_(True)
+        self.vf_loss.pixel_shuffle.requires_grad_(True)
         self.adv_loss = adv_loss
         if isinstance(loss_weights, dict):
             self.recon_loss_weight = loss_weights.get("recon", 1.0)
