@@ -35,7 +35,7 @@ class VFLoss(nn.Module):
             p.requires_grad_(False)
 
         self.proj =nn.Conv2d(16, 1024, kernel_size=7, bias=True, padding=3)
-        #self.pixel_shuffle = nn.PixelShuffle(upscale_factor=2)
+        self.pixel_shuffle = nn.Conv2d(1024, 1024, kernel_size=2, bias=True, padding=1, stride=2)
 
     @torch.no_grad()
     def get_dinov2_features(self, x):
@@ -58,7 +58,7 @@ class VFLoss(nn.Module):
         f_patches, f_cls = self.get_dinov2_features(img)
 
         z_proj_patches = self.proj(z)
-        z_proj_patches = self.pixel_shuffle(z_proj_patches)
+        #z_proj_patches = self.pixel_shuffle(z_proj_patches)
         f_patches_flat = f_patches.flatten(2)
         z_proj_patches_flat = z_proj_patches.flatten(2)
 
