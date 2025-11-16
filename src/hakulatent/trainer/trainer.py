@@ -322,7 +322,7 @@ class LatentTrainer(BaseTrainer):
             dist = dist.latent_dist
         dist.deterministic = False
 
-        latent = dist.latent
+        latent = dist.mode()
         origin = latent.clone()
 
         if self.transform is not None and random.random() < self.transform_prob:
@@ -356,8 +356,8 @@ class LatentTrainer(BaseTrainer):
 
     def recon_step(self, x, x_rec, latent, dist, g_opt, g_sch, batch_idx, grad_acc, imags):
         recon_loss = self.recon_loss(x, x_rec)
-        #vf_loss = self.vf_loss(latent, imags)
-        vf_loss = torch.tensor(0.0, device=x.device)
+        vf_loss = self.vf_loss(latent, imags)
+        #vf_loss = torch.tensor(0.0, device=x.device)
         # --- Cycle loss ---
         cycle_loss = torch.tensor(0.0, device=x.device)
         if self.cycle_loss_weight > 0:
@@ -368,7 +368,7 @@ class LatentTrainer(BaseTrainer):
             cycle_loss = F.mse_loss(latent_cycle2, latent_cycle)
 
         #kl_loss = torch.sum(dist.kl()) / x_rec.numel()
-        #jepa_loss = self.lejepa_loss(dist.latent.reshape(x.shape[0], -1))
+        jepa_loss = self.lejepa_loss(dist.latent.reshape(x.shape[0], -1))
         kl_loss = torch.tensor(0.0, device=x.device)
         reg_loss = self.convnext_criterion(x, x_rec)
         swt = self.swt(x_rec, x)

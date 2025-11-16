@@ -34,8 +34,8 @@ class VFLoss(nn.Module):
         for p in self.dinov2.parameters():
             p.requires_grad_(False)
 
-        self.proj =nn.Conv2d(128, 1024 * 4, kernel_size=7, bias=True, padding=3)
-        self.pixel_shuffle = nn.PixelShuffle(upscale_factor=2)
+        self.proj =nn.Conv2d(16, 1024, kernel_size=7, bias=True, padding=3)
+        #self.pixel_shuffle = nn.PixelShuffle(upscale_factor=2)
 
     @torch.no_grad()
     def get_dinov2_features(self, x):
