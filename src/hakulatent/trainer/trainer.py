@@ -378,7 +378,7 @@ class LatentTrainer(BaseTrainer):
                 recon_loss * self.recon_loss_weight
                 #+ kl_loss * self.kl_loss_weight
                 + jepa_loss * 0.01
-                + reg_loss
+                + reg_loss * 0.1
                 + cycle_loss * self.cycle_loss_weight
                 + swt * 0.1 + vf_loss )
         adv_loss = torch.tensor(0.0, device=x.device)
