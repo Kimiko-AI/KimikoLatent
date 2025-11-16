@@ -28,46 +28,49 @@ import torch.nn as nn
 import torch.nn.functional as F
 import timm
 
+class ConvNeXtFeatureLoss(nn.Module):
+    def __init__(self, model_name="convnext_large.dinov3_lvd1689m"):
+        super().__init__()
 
-class ConvNeXtFeatureLoss:
-    def __init__(self, model_name="convnext_large.dinov3_lvd1689m", device="cpu"):
-        self.device = device
-
+        # Backbone with feature extraction
         self.model = timm.create_model(
             model_name,
             pretrained=True,
             features_only=True
-        ).to(device).eval()
+        )
+        self.model.eval()
         for p in self.model.parameters():
-          p.requires_grad = False
+            p.requires_grad = False
 
-        self.imagenet_mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 3, 1, 1)
-        self.imagenet_std  = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 3, 1, 1)
+        # Register normalization constants as buffers so they move automatically
+        imagenet_mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
+        imagenet_std  = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
+
+        self.register_buffer("imagenet_mean", imagenet_mean, persistent=False)
+        self.register_buffer("imagenet_std", imagenet_std, persistent=False)
 
     def normalize_from_minus1_1(self, x):
-        x = (x + 1) / 2                     # back to [0,1]
+        x = (x + 1) / 2
         return (x - self.imagenet_mean) / self.imagenet_std
-
-    def extract_all_features(self, x):
-        return self.model(x)
 
     def feature_loss(self, f1, f2):
         a = F.normalize(f1, dim=1)
         b = F.normalize(f2, dim=1)
         return F.mse_loss(a, b)
 
-    def loss_from_tensors(self, x1, x2):
-        x1 = self.normalize_from_minus1_1(x1.to(self.device))
-        x2 = self.normalize_from_minus1_1(x2.to(self.device))
+    def forward(self, x1, x2):
+        x1 = self.normalize_from_minus1_1(x1)
+        x2 = self.normalize_from_minus1_1(x2)
 
-        feats1 = self.extract_all_features(x1)
-        feats2 = self.extract_all_features(x2)
+        feats1 = self.model(x1)
+        feats2 = self.model(x2)
 
         total = 0.0
         for a, b in zip(feats1, feats2):
             total = total + self.feature_loss(a, b)
 
         return total
+
 
 
 class BaseTrainer(pl.LightningModule):
@@ -358,16 +361,16 @@ class LatentTrainer(BaseTrainer):
             cycle_loss = F.mse_loss(latent_cycle2, latent_cycle)
 
         #kl_loss = torch.sum(dist.kl()) / x_rec.numel()
-        #jepa_loss = self.lejepa_loss(dist.latent.reshape(x.shape[0], -1))
-        kl_loss = torch.tensor(0.0, device=x.device)
-        reg_loss = self.convnext_criterion.loss_from_tensors(x, x_rec)
+        jepa_loss = self.lejepa_loss(dist.latent.reshape(x.shape[0], -1))
+        kl_loss = jepa_loss
+        reg_loss = self.convnext_criterion(x, x_rec)
         swt = self.swt(x_rec, x)
         if self.latent_loss is not None:
             reg_loss += self.latent_loss(latent)
         loss = (
                 recon_loss * self.recon_loss_weight
-                + kl_loss * self.kl_loss_weight
-                #+ jepa_loss * self.kl_loss_weight
+                #+ kl_loss * self.kl_loss_weight
+                + jepa_loss * 0.1
                 + reg_loss
                 + cycle_loss * self.cycle_loss_weight
                 + swt * 0.1 + vf_loss )
