@@ -356,8 +356,8 @@ class LatentTrainer(BaseTrainer):
 
     def recon_step(self, x, x_rec, latent, dist, g_opt, g_sch, batch_idx, grad_acc, imags):
         recon_loss = self.recon_loss(x, x_rec)
-        vf_loss = self.vf_loss(latent, imags)
-        #vf_loss = torch.tensor(0.0, device=x.device)
+        #vf_loss = self.vf_loss(latent, imags)
+        vf_loss = torch.tensor(0.0, device=x.device)
         # --- Cycle loss ---
         cycle_loss = torch.tensor(0.0, device=x.device)
         if self.cycle_loss_weight > 0:
